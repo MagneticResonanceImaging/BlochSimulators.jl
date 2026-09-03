@@ -53,6 +53,7 @@ const TEST_FILES = [
     "finite_difference",
     "forward_sensitivity",
     "inversion",
+    "mt",
     "check_sequence",
     "validation",
 ]

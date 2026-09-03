@@ -16,6 +16,15 @@ that can be assembled with the `@parameters` macro.
   (arbitrary units, dimensionless scaling factor).
 - `ρʸ::T`: Imaginary part of proton density or equilibrium magnetization M₀
   (arbitrary units, dimensionless scaling factor).
+- `T₁ᵇ::T`: Longitudinal relaxation time constant of the semisolid/bound pool in a
+  two-pool magnetization transfer (MT) model, in **seconds**.
+- `T₂ᵇ::T`: Transverse relaxation time constant of the bound pool, in **seconds**
+  (typically tens of microseconds). Used to evaluate the bound pool's RF absorption
+  lineshape; the bound pool itself has no observable transverse magnetization.
+- `f::T`: Bound pool fraction of the total equilibrium magnetization, i.e.
+  `M0ᵇ / (M0ᵃ + M0ᵇ)` (dimensionless, between 0 and 1).
+- `k::T`: Forward magnetization exchange rate from the free pool to the bound pool, in
+  **s⁻¹**. The reverse rate follows from detailed balance: `k_ba = k * (1-f) / f`.
 
 # Implementation details:
 The structs are subtypes of FieldVector, which is a StaticVector with named
@@ -129,6 +138,39 @@ struct T₁T₂B₁B₀D{T} <: AbstractTissueProperties{5,T}
     D::T
 end
 
+"""
+    T₁T₂MT{T} <: AbstractTissueProperties{6,T}
+
+Tissue properties struct containing `T₁`, `T₂`, `T₁ᵇ`, `T₂ᵇ`, `f`, and `k` for a two-pool
+magnetization transfer (MT) model (free pool a + bound pool b, following the binary
+spin-bath model of Henkelman et al.). Units are defined in [`AbstractTissueProperties`](@ref).
+"""
+struct T₁T₂MT{T} <: AbstractTissueProperties{6,T}
+    T₁::T
+    T₂::T
+    T₁ᵇ::T
+    T₂ᵇ::T
+    f::T
+    k::T
+end
+
+"""
+    T₁T₂B₁MT{T} <: AbstractTissueProperties{7,T}
+
+Tissue properties struct containing `T₁`, `T₂`, `B₁`, `T₁ᵇ`, `T₂ᵇ`, `f`, and `k` for a
+two-pool magnetization transfer (MT) model. Units are defined in
+[`AbstractTissueProperties`](@ref).
+"""
+struct T₁T₂B₁MT{T} <: AbstractTissueProperties{7,T}
+    T₁::T
+    T₂::T
+    B₁::T
+    T₁ᵇ::T
+    T₂ᵇ::T
+    f::T
+    k::T
+end
+
 # For each subtype of AbstractTissueProperties created above, we use meta-programming to
 # create additional types that also hold proton density (ρˣ and ρʸ).
 #
@@ -174,16 +216,18 @@ for S in subtypes(AbstractTissueProperties)
     @eval StaticArrays.similar_type(::Type{$(S){T}}, ::Type{T}, s::Size{(fieldcount($(S)),)}) where {T} = $(S){T}
 end
 
-# Define trait functions to check whether B₁ or B₀ is part of the type
+# Define trait functions to check whether B₁, B₀, D or MT is part of the type
 # Set default value to false:
 hasB₁(::AbstractTissueProperties) = false
 hasB₀(::AbstractTissueProperties) = false
 hasD(::AbstractTissueProperties) = false
+hasMT(::AbstractTissueProperties) = false
 
 for P in subtypes(AbstractTissueProperties)
     @eval hasB₁(::$(P)) = $(:B₁ ∈ fieldnames(P))
     @eval hasB₀(::$(P)) = $(:B₀ ∈ fieldnames(P))
     @eval hasD(::$(P)) = $(:D ∈ fieldnames(P))
+    @eval hasMT(::$(P)) = $(:f ∈ fieldnames(P))
 end
 
 # Programatically export all subtypes of AbstractTissueProperties
@@ -212,6 +256,10 @@ function get_nonlinear_part(p::Type{<:AbstractTissueProperties})
             return T₁T₂B₁B₀
         elseif p <: T₁T₂B₁B₀Dρˣρʸ
             return T₁T₂B₁B₀D
+        elseif p <: T₁T₂T₁ᵇT₂ᵇfkρˣρʸ
+            return T₁T₂MT
+        elseif p <: T₁T₂B₁T₁ᵇT₂ᵇfkρˣρʸ
+            return T₁T₂B₁MT
         else
             error("Unknown parameter type: $p")
         end
@@ -256,6 +304,8 @@ const T1T2B0 = T₁T₂B₀
 const T1T2B0D = T₁T₂B₀D
 const T1T2B1B0 = T₁T₂B₁B₀
 const T1T2B1B0D = T₁T₂B₁B₀D
+const T1T2MT = T₁T₂MT
+const T1T2B1MT = T₁T₂B₁MT
 
 const T1T2PDxPDy = T₁T₂ρˣρʸ
 const T1T2DPDxPDy = T₁T₂Dρˣρʸ
@@ -265,6 +315,8 @@ const T1T2B0PDxPDy = T₁T₂B₀ρˣρʸ
 const T1T2B0DPDxPDy = T₁T₂B₀Dρˣρʸ
 const T1T2B1B0PDxPDy = T₁T₂B₁B₀ρˣρʸ
 const T1T2B1B0DPDxPDy = T₁T₂B₁B₀Dρˣρʸ
+const T1T2MTPDxPDy = T₁T₂T₁ᵇT₂ᵇfkρˣρʸ
+const T1T2B1MTPDxPDy = T₁T₂B₁T₁ᵇT₂ᵇfkρˣρʸ
 
 # To perform simulations for multiple voxels, we store the tissue properties in a `StructArray` which we refer to as the `SimulationParameters`.
 const SimulationParameters = StructArray{<:AbstractTissueProperties}
