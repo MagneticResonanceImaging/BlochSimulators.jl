@@ -604,3 +604,130 @@ end
         @inbounds output[index] .+= Ω
     end
 end
+
+### TWO-POOL (MT) EXTENSION ###
+#
+# `Ω` (the free pool's F₊, F̄₋, Zᵃ configuration states) stays exactly the same 3×Ns
+# `ConfigurationStates`/`ConfigurationStatesSubset` used above -- untouched -- so
+# `excite!`, `dephasing!` and `spoil!` are reused completely unmodified for the free
+# pool. The bound pool has no transverse coherence of its own, but it *can* pick up
+# higher-order structure by exchanging with the free pool's higher-order Zᵃ states, so
+# its per-order population is tracked in a *separate* vector `Zᵇ` (order 0 = the
+# unmodulated component), threaded functionally through the sequence loop (like the
+# isochromat model's `m`) rather than by growing `Ω` to a 4th row. See
+# `operators/mt.jl` for the underlying two-pool exchange/saturation physics, and Malik
+# et al.'s EPG-X (MRM 2018) for the same decomposition (their state vector interleaves
+# what are here `Ω`'s rows 1:3 and `Zᵇ` into one 4-row-per-order layout; splitting them
+# apart like this lets every existing single-pool `AbstractConfigurationStates` method
+# be reused as-is).
+
+"""
+    Ω_eltype(sequence::TwoPoolEPGSimulator{T,Ns}) where {T,Ns} = Complex{T}
+
+Default `Ω_eltype` for `TwoPoolEPGSimulator`, see [`Ω_eltype`](@ref) (`EPGSimulator`
+version) for details.
+"""
+@inline Ω_eltype(sequence::TwoPoolEPGSimulator{T,Ns}) where {T,Ns} = Complex{T}
+
+"""
+    initialize_states(::AbstractResource, sequence::TwoPoolEPGSimulator{T,Ns}) where {T,Ns}
+
+Initialize the free pool's configuration states `Ω` (exactly as for a regular
+`EPGSimulator`) together with the bound pool's per-order population `Zᵇ` (a length-`Ns`
+vector, zero until [`mt_initial_conditions!`](@ref) is called).
+"""
+@inline function initialize_states(::AbstractResource, sequence::TwoPoolEPGSimulator{T,Ns}) where {T,Ns}
+    Ω = ConfigurationStates(zeros(Ω_eltype(sequence), 3, Ns))
+    Zᵇ = zeros(SVector{Ns,Ω_eltype(sequence)})
+    return (Ω=Ω, Zᵇ=Zᵇ)
+end
+
+"""
+    initialize_states(::CUDALibs, sequence::TwoPoolEPGSimulator{T,Ns}) where {T,Ns}
+
+GPU version of `initialize_states` for `TwoPoolEPGSimulator`. `Ω` uses the same
+per-thread state-partitioning scheme as `initialize_states(::CUDALibs, ::EPGSimulator)`;
+`Zᵇ` uses exactly the same per-thread column count.
+"""
+@inline function initialize_states(::CUDALibs, sequence::TwoPoolEPGSimulator{T,Ns}) where {T,Ns}
+    if (Ns % WARPSIZE != 0)
+        error("Number of states must be a multiple of THREADS_PER_BLOCK")
+    end
+    num_states_per_thread = Ns ÷ WARPSIZE
+    Ω = ConfigurationStatesSubset(@SMatrix zeros(Ω_eltype(sequence), 3, num_states_per_thread))
+    Zᵇ = zeros(SVector{num_states_per_thread,Ω_eltype(sequence)})
+    return (Ω=Ω, Zᵇ=Zᵇ)
+end
+
+# Add the equilibrium-regrowth contribution `c` to order 0 of `(Zᵃ,Zᵇ)` only. Shared by
+# `mt_initial_conditions!` (to set Zᵇ's order-0 entry to its equilibrium value) and
+# `mt_exchange_relax!` (to add the actual regrowth term). Mirrors the CPU/GPU dual
+# dispatch already used for `regrowth!`/`initial_conditions!`: on GPU, only the lane
+# that owns global order 0 may touch it.
+@inline function _mt_add_equilibrium(Ω::AbstractConfigurationStates, Zᵇ::SVector{M,C}, c) where {M,C}
+    @inbounds Z(Ω)[0] += c[1]
+    return Base.setindex(Zᵇ, Zᵇ[1] + c[2], 1)
+end
+
+@inline function _mt_add_equilibrium(Ω::ConfigurationStatesSubset, Zᵇ::SVector{M,C}, c) where {M,C}
+    if laneid() == 1
+        @inbounds Ω[3, 1] += c[1]
+        return Base.setindex(Zᵇ, Zᵇ[1] + c[2], 1)
+    end
+    return Zᵇ
+end
+
+"""
+    mt_initial_conditions!(Ω::AbstractConfigurationStates, Zᵇ, f)
+
+Set the free pool's configuration states to the usual initial conditions (via
+[`initial_conditions!`](@ref)) and return the bound pool's initial per-order population
+(all zero except order 0, which starts at its equilibrium value `f`). `Zᵇ` is only used
+to determine the element type/size of the returned vector (matching how `m` is reused in
+the isochromat model), it is not mutated.
+"""
+@inline function mt_initial_conditions!(Ω::AbstractConfigurationStates, Zᵇ::SVector{M,C}, f) where {M,C}
+    initial_conditions!(Ω)
+    return _mt_add_equilibrium(Ω, zero(Zᵇ), SVector(zero(C), C(f)))
+end
+
+"""
+    mt_saturate(Zᵇ, Wτ)
+
+Apply RF saturation to every order of the bound pool's per-order population `Zᵇ`,
+scaling by `exp(-Wτ)` (see [`saturation_exponent`](@ref)). RF saturation of the bound
+pool is spatially uniform (order-independent), unlike the free pool's coherent
+rotation, exactly as in EPG-X's block-diagonal RF transition matrix.
+"""
+@inline mt_saturate(Zᵇ, Wτ) = Zᵇ .* exp(-Wτ)
+
+"""
+    mt_exchange_relax!(Ω::AbstractConfigurationStates, Zᵇ, E₂ᵃ, Λ, c)
+
+Apply T₂ decay to the free pool's transverse states (`E₂ᵃ`, exactly like [`decay!`](@ref))
+and the coupled two-pool relaxation-exchange propagator (`Λ`, `c` from
+[`exchange_propagator`](@ref)) to every order of `(Zᵃ,Zᵇ)` jointly. Replaces the
+`decay!` + `regrowth!` pair used for single-pool sequences (T₁ relaxation of the free
+pool's Zᵃ states is no longer independent of the bound pool). Unlike gradient
+dephasing, exchange is spatially local so no cross-order/cross-lane communication is
+needed: every order (and, on GPU, every thread's locally-owned subset of orders) evolves
+independently, with the equilibrium contribution `c` added only to order 0.
+"""
+@inline function mt_exchange_relax!(Ω::AbstractConfigurationStates, Zᵇ::SVector{M,C}, E₂ᵃ, Λ, c) where {M,C}
+    # T₂ decay of the free pool's transverse states; row 3 (Zᵃ) is intentionally left
+    # alone here -- it is updated jointly with Zᵇ below, not by simple exponential decay.
+    Ω .*= (E₂ᵃ, E₂ᵃ, one(E₂ᵃ))
+
+    # Read/write row 3 through `Ω`'s own (CPU/GPU-generic) indexing directly, rather
+    # than through the `Z(Ω)` OffsetVector helper: `Z(Ω)` is a `view` into `Ω.matrix`,
+    # which is fine for reads but not assignable when `Ω.matrix` is the immutable
+    # `SMatrix` backing a GPU `ConfigurationStatesSubset` (assigning into that view does
+    # not go through `Ω`'s own `setindex!`, and does not compile in a GPU kernel).
+    Zᵇnew = MVector{M,C}(undef)
+    @inbounds for n in 1:size(Ω, 2)
+        zᵃ, zᵇ = Ω[3, n], Zᵇ[n]
+        Ω[3, n] = Λ[1, 1] * zᵃ + Λ[1, 2] * zᵇ
+        Zᵇnew[n] = Λ[2, 1] * zᵃ + Λ[2, 2] * zᵇ
+    end
+    return _mt_add_equilibrium(Ω, SVector(Zᵇnew), c)
+end

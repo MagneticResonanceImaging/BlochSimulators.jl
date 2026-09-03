@@ -1,4 +1,5 @@
 export BlochSimulator, IsochromatSimulator, EPGSimulator
+export TwoPoolIsochromatSimulator, TwoPoolEPGSimulator
 
 ### Type definitions
 
@@ -62,6 +63,40 @@ abstract type EPGSimulator{T,Ns} <: BlochSimulator{T} end
 # (e.g. T₁,T₂, etc) and is useful for dispatching in some functions. For the EPG model we need to
 # keep track of a certain number of configuration states Ns. This number Ns is made part of the type so
 # that it is known at compile time (which is needed because we will be working with StaticArrays)
+
+# Two-pool magnetization transfer (MT) variants of the above. These are *siblings* of
+# `IsochromatSimulator`/`EPGSimulator` (not subtypes) so that the existing
+# `initialize_states(resource, ::IsochromatSimulator)`/`::EPGSimulator)` methods (which
+# return single-pool state) can never accidentally get dispatched to for a two-pool
+# sequence; two-pool sequences get their own `initialize_states` methods (see
+# `operators/isochromat.jl`/`operators/epg.jl`) returning the extra bound-pool state.
+
+"""
+    TwoPoolIsochromatSimulator{T} <: BlochSimulator{T}
+
+Abstract type of which all sequence simulators that are based on the two-pool
+(free + bound pool) isochromat model will be a subtype, for simulating magnetization
+transfer (MT) effects. The parameter `T` should be a number type (e.g. `Float64`,
+`Float32`) and the tissueparameters that are used as input to the simulator should have
+the same number type. Tissue properties must include the MT-related fields (`T₁ᵇ`,
+`T₂ᵇ`, `f`, `k`; see [`AbstractTissueProperties`](@ref) and [`hasMT`](@ref)).
+"""
+abstract type TwoPoolIsochromatSimulator{T} <: BlochSimulator{T} end
+
+"""
+    TwoPoolEPGSimulator{T,Ns} <: BlochSimulator{T}
+
+Abstract type of which all sequence simulators that are based on the two-pool
+(free + bound pool) EPG model will be a subtype, for simulating magnetization transfer
+(MT) effects. The parameter `T` should be a number type (e.g. `Float64`, `Float32`) and
+the tissueparameters that are used as input to the simulator should have the same
+number type. The parameter `Ns` corresponds to the maximum order of configuration
+states that are tracked for the free pool (the bound pool's per-order population is
+tracked alongside it at the same `Ns`, see `operators/epg.jl`). Tissue properties must
+include the MT-related fields (`T₁ᵇ`, `T₂ᵇ`, `f`, `k`; see
+[`AbstractTissueProperties`](@ref) and [`hasMT`](@ref)).
+"""
+abstract type TwoPoolEPGSimulator{T,Ns} <: BlochSimulator{T} end
 
 # Building blocks for sequence simulators based on isochromat model are contained in src/operators/isochromat.jl
 # Building blocks for sequence simulators based on EPG model are contained in src/operators/epg.jl

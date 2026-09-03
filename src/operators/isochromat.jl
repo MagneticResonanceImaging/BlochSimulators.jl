@@ -180,3 +180,144 @@ where slice profile is taken into account.
 @inline function sample_xyz!(output::AbstractArray{<:S}, index::Union{Integer,CartesianIndex}, m::Isochromat) where {S}
     @inbounds output[index] += S(m.x, m.y, m.z)
 end
+
+### TWO-POOL (MT) EXTENSION ###
+#
+# Extends the isochromat model with a second, bound pool (see `operators/mt.jl` for the
+# underlying two-pool exchange/saturation physics). The bound pool only ever has a
+# longitudinal component `zᵇ`, so the state is a 4-vector (x,y,z,zᵇ) rather than 3. RF
+# and gradient rotation are unchanged for the free pool (x,y,z) -- reused directly from
+# above -- and the bound pool is only ever affected through saturation, never rotation.
+
+"""
+    struct TwoPoolIsochromat{T<:Real} <: FieldVector{4,T}
+        x::T
+        y::T
+        z::T
+        zᵇ::T
+    end
+
+Holds the x,y,z components of the free pool's isochromat plus the longitudinal
+magnetization `zᵇ` of the bound pool, for two-pool magnetization transfer simulations.
+"""
+struct TwoPoolIsochromat{T<:Real} <: FieldVector{4,T}
+    x::T
+    y::T
+    z::T
+    zᵇ::T
+end
+
+StaticArrays.similar_type(::Type{TwoPoolIsochromat{T}}, ::Type{T}, s::Size{(4,)}) where {T<:Real} = TwoPoolIsochromat{T}
+
+# Initialize States
+
+"""
+    initialize_states(::AbstractResource, ::TwoPoolIsochromatSimulator{T}) where T
+
+Initialize a two-pool spin isochromat to be used throughout a simulation of the sequence.
+"""
+@inline function initialize_states(::AbstractResource, ::TwoPoolIsochromatSimulator{T}) where {T}
+    return TwoPoolIsochromat{T}(0, 0, 0, 0)
+end
+
+"""
+    initial_conditions(m::TwoPoolIsochromat{T}, p::AbstractTissueProperties) where T
+
+Return a two-pool isochromat with `(x,y,z) = (0,0,1)` for the free pool and `zᵇ = p.f`
+for the bound pool (its equilibrium value).
+"""
+@inline function initial_conditions(m::TwoPoolIsochromat{T}, p::AbstractTissueProperties) where {T}
+    return TwoPoolIsochromat{T}(0, 0, 1, p.f)
+end
+
+# Rotate
+
+"""
+    rotate(m::TwoPoolIsochromat, args...)
+
+RF, gradient and/or ΔB₀ induced rotation of the free pool, identical to
+[`rotate`](@ref) for a single-pool `Isochromat`. The bound pool has no transverse
+component and is therefore never rotated (only saturated, see [`saturate`](@ref)); `zᵇ`
+is passed through unchanged.
+"""
+@inline function rotate(m::TwoPoolIsochromat{T}, args...) where {T}
+    mᵃ = rotate(Isochromat{T}(m.x, m.y, m.z), args...)
+    return TwoPoolIsochromat{T}(mᵃ.x, mᵃ.y, mᵃ.z, m.zᵇ)
+end
+
+# Saturate
+
+"""
+    saturate(m::TwoPoolIsochromat{T}, Wτ) where T
+
+Apply RF saturation to the bound pool, scaling `zᵇ` by `exp(-Wτ)` (see
+[`saturation_exponent`](@ref)). The free pool is unaffected.
+"""
+@inline function saturate(m::TwoPoolIsochromat{T}, Wτ) where {T}
+    return TwoPoolIsochromat{T}(m.x, m.y, m.z, m.zᵇ * exp(-Wτ))
+end
+
+# Exchange + relax
+
+"""
+    exchange_relax(m::TwoPoolIsochromat{T}, E₂ᵃ, Λ, c) where T
+
+Apply T₂ decay to the free pool's transverse component (using `E₂ᵃ`, exactly like
+[`decay`](@ref)) and the coupled two-pool relaxation-exchange propagator (`Λ`, `c` from
+[`exchange_propagator`](@ref)) to `(z,zᵇ)` jointly. Replaces the `decay`+`regrowth` pair
+used for single-pool sequences (T₁ relaxation of the free pool's z-component is no
+longer independent of the bound pool, so it cannot be split into separate decay/regrowth
+steps).
+"""
+@inline function exchange_relax(m::TwoPoolIsochromat{T}, E₂ᵃ, Λ, c) where {T}
+    zᵃzᵇ = Λ * SVector{2,T}(m.z, m.zᵇ) + c
+    return TwoPoolIsochromat{T}(m.x * E₂ᵃ, m.y * E₂ᵃ, zᵃzᵇ[1], zᵃzᵇ[2])
+end
+
+# Invert
+
+"""
+    invert(m::TwoPoolIsochromat{T}, p::AbstractTissueProperties, τ_RF, shape_factor, Δ, ls::MTLineshape) where T
+
+Invert the free pool's z-component exactly like [`invert`](@ref) for a single-pool
+`Isochromat`, and saturate the bound pool using the inversion pulse's own duration
+`τ_RF` and lineshape parameters (an RF pulse only ever saturates -- never coherently
+rotates -- the bound pool, whether it is an excitation or inversion pulse).
+"""
+@inline function invert(m::TwoPoolIsochromat{T}, p::AbstractTissueProperties, τ_RF, shape_factor, Δ, ls::MTLineshape) where {T}
+    mᵃ = invert(Isochromat{T}(m.x, m.y, m.z), p)
+    Wτ = saturation_exponent(T(180), τ_RF, shape_factor, Δ, p.T₂ᵇ, ls)
+    return TwoPoolIsochromat{T}(mᵃ.x, mᵃ.y, mᵃ.z, m.zᵇ * exp(-Wτ))
+end
+
+"""
+    invert(m::TwoPoolIsochromat{T}) where T
+
+Invert the free pool with a B₁-insensitive (i.e. adiabatic) inversion pulse. As the
+bound pool's response to an adiabatic sweep is not represented by the same "flip
+angle + duration" saturation formula used for the free pool's imaging pulses, the bound
+pool is left unchanged here; use the other `invert` method (with an explicit `τ_RF`) to
+also saturate the bound pool.
+"""
+@inline invert(m::TwoPoolIsochromat{T}) where {T} = TwoPoolIsochromat{T}(0, 0, -m.z, m.zᵇ)
+
+# Sample
+
+"""
+    sample_transverse!(output, index::Union{Integer,CartesianIndex}, m::TwoPoolIsochromat)
+
+Sample transverse magnetization of the free pool from a `TwoPoolIsochromat` (the bound
+pool has no transverse, observable magnetization).
+"""
+@inline function sample_transverse!(output, index::Union{Integer,CartesianIndex}, m::TwoPoolIsochromat)
+    @inbounds output[index] += complex(m.x, m.y)
+end
+
+"""
+    sample_xyz!(output, index::Union{Integer,CartesianIndex}, m::TwoPoolIsochromat)
+
+Sample m.x, m.y and m.z components of the free pool from a `TwoPoolIsochromat`.
+"""
+@inline function sample_xyz!(output::AbstractArray{<:S}, index::Union{Integer,CartesianIndex}, m::TwoPoolIsochromat) where {S}
+    @inbounds output[index] += S(m.x, m.y, m.z)
+end

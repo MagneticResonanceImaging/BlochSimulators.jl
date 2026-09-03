@@ -21,9 +21,9 @@ import Functors: @functor, functor, fmap, isleaf
 # Supported combinations of tissue properties are defined in tissueparameters.jl
 include("interfaces/tissueproperties.jl")
 
-export @parameters, AbstractTissueProperties, hasB₁, hasB₀
-export T1T2, T1T2B1, T1T2B0, T1T2B1B0
-export T1T2PDxPDy, T1T2B1PDxPDy, T1T2B0PDxPDy, T1T2B1B0PDxPDy
+export @parameters, AbstractTissueProperties, hasB₁, hasB₀, hasD, hasMT
+export T1T2, T1T2B1, T1T2B0, T1T2B1B0, T1T2MT, T1T2B1MT
+export T1T2PDxPDy, T1T2B1PDxPDy, T1T2B0PDxPDy, T1T2B1B0PDxPDy, T1T2MTPDxPDy, T1T2B1MTPDxPDy
 export SimulationParameters
 
 # Informal interface for sequence implementations. By convention,
@@ -32,13 +32,19 @@ export SimulationParameters
 include("interfaces/sequences.jl")
 
 export BlochSimulator, IsochromatSimulator, EPGSimulator
+export TwoPoolIsochromatSimulator, TwoPoolEPGSimulator
 
-# Operator functions for isochromat model and EPG model
+# Operator functions for isochromat model and EPG model. `operators/mt.jl` (shared
+# two-pool magnetization transfer physics) must come before isochromat.jl/epg.jl since
+# their two-pool extensions build on it.
+include("operators/mt.jl")
 include("operators/isochromat.jl")
 include("operators/epg.jl")
 include("operators/utils.jl")
 
-export Isochromat, ConfigurationStates
+export Isochromat, ConfigurationStates, TwoPoolIsochromat
+export MTLineshape, Gaussian, Lorentzian, SuperLorentzian
+export exchange_propagator, saturation_exponent
 
 # Currently included example sequences:
 
@@ -57,6 +63,11 @@ include("../sequences/fisp2d.jl")
 include("../sequences/fisp3d.jl")
 
 include("../sequences/adiabatic.jl")
+
+# Two-pool (free + bound pool) magnetization transfer (MT) sequences: an isochromat
+# version and an EPG version of the same on-resonance spoiled-gradient-echo scenario.
+include("../sequences/mt_spgr_isochromat.jl")
+include("../sequences/mt_spgr_epg.jl")
 
 # To simulate the effects of a gradient trajectory, the spatial coordinates
 # of the voxels must be known. The coordinates are stored in a `Coordinates` struct
