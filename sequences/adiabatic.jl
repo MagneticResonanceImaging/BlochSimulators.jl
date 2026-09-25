@@ -1,22 +1,30 @@
 """
-    AdiabaticPulse{T<:Real, V<:AbstractVector} <: IsochromatSimulator{T}
+    AdiabaticPulse{T<:Real, A<:AbstractVector, W<:AbstractVector} <: IsochromatSimulator{T}
 
 This struct is used to simulate an adiabatic inversion pulse. This struct itself
 could be used as field in other sequence structs.
 
+The pulse can be described in two equivalent ways:
+
+- In the frame that rotates along with the pulse's instantaneous frequency: a
+  real amplitude `γΔtA` and the frequency sweep as `Δω`, as
+  [`hyperbolic_secant_pulse`](@ref) does.
+- In the frame of the carrier frequency, as a sampled RF waveform is stored
+  (e.g. in a Pulseq file): a complex, phase-modulated `γΔtA` and `Δω = 0`.
+
 # Fields
-- `γΔtA::V`: Time-dependent amplitude modulation. Units: **radians** (γ·B₁·Δt)
-- `Δω::V`: Time-dependent frequency modulation. Units: **rad/s** (angular frequency offset)
+- `γΔtA::A`: Time-dependent RF, real or complex (its phase is the RF phase). Units: **radians** (γ·B₁·Δt)
+- `Δω::W`: Time-dependent frequency modulation. Units: **rad/s** (angular frequency offset)
 - `Δt::T`: Time discretization step in **seconds**, assumed constant
 """
-struct AdiabaticPulse{T<:Real,V<:AbstractVector} <: IsochromatSimulator{T}
-    γΔtA::V
-    Δω::V
+struct AdiabaticPulse{T<:Real,A<:AbstractVector,W<:AbstractVector} <: IsochromatSimulator{T}
+    γΔtA::A
+    Δω::W
     Δt::T
 end
 # Methods needed to allocate an output array of the correct size and type
 output_size(sequence::AdiabaticPulse) = 1 # Only record the magnetization at the end of the inversion pulse
-output_eltype(sequence::AdiabaticPulse{T,V}) where {T,V} = Isochromat{T}
+output_eltype(sequence::AdiabaticPulse{T}) where {T} = Isochromat{T}
 
 # To be able to change precision and send to CUDA device
 @functor AdiabaticPulse

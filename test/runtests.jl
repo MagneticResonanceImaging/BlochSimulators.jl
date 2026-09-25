@@ -1180,6 +1180,14 @@ end
         @test inversion_efficiency(model, T₁T₂(1.0, 0.1)) == inversion_efficiency(model, T₁T₂B₁(1.0, 0.1, 1.0))
         # outside the grid the end values are used
         @test inversion_efficiency(model, T₁T₂B₁(1.0, 0.1, 2.0)) ≈ inversion_efficiency(model, T₁T₂B₁(1.0, 0.1, 1.6))
+        # the same pulse as a phase-modulated waveform in the carrier frame (as a Pulseq file
+        # stores it) gives the same model
+        phase = cumsum(-pulse.Δω .* pulse.Δt)
+        phase_modulated = AdiabaticPulse(pulse.γΔtA .* cis.(phase), zero(pulse.Δω), pulse.Δt)
+        model_pm = EffectiveAdiabaticInversion(phase_modulated)
+        @test model_pm.η₀ ≈ model.η₀ atol = 1e-4
+        @test model_pm.τ₁ ≈ model.τ₁ rtol = 1e-3
+        @test model_pm.τ₂ ≈ model.τ₂ rtol = 1e-3
         # the pulse does not invert at very low B₁
         @test_throws ArgumentError EffectiveAdiabaticInversion(pulse; B₁=0.2:0.1:1.0)
         # rebuilding from the tabulated values (as when read back from a file) is lossless
