@@ -25,6 +25,13 @@ Modules = [BlochSimulators]
 Pages   = ["operators/epg.jl"]
 ```
 
+## Inversion Models
+
+```@autodocs
+Modules = [BlochSimulators]
+Pages   = ["operators/inversion.jl"]
+```
+
 ## Tissue Parameters
 
 ```@docs

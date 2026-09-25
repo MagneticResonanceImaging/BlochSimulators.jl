@@ -32,12 +32,14 @@
 # simulation -- is then reused completely verbatim, called with this pair as
 # `Ω` and a matching pair of output arrays as `magnetization`.
 #
-# Only three operators have a source term, because only three things in the
+# Only four operators have a source term, because only four things in the
 # simulation depend on the tissue properties at all:
 #
 #   decay! / rotate_decay!   E₁ and E₂ depend on T₁ and T₂
 #   regrowth!                E₁ depends on T₁
 #   excite! / invert!        the rotation angle depends on B₁
+#   invert! with an          η depends on T₁, T₂ and B₁
+#     EffectiveAdiabaticInversion
 #
 # Every other operator (dephasing!, spoil!, diffuse!, ...) is the same linear
 # map on Ω and on each tangent, so its method just applies the original
@@ -367,6 +369,23 @@ end
     ∂Ω.∂T₁ .*= f
     ∂Ω.∂T₂ .*= f
     has_B₁(∂Ω) && (∂Ω.∂B₁ .= f .* ∂Ω.∂B₁ .+ ∂f∂B₁ .* Ω)
+    Ω .*= f
+    return nothing
+end
+
+# Inversion models (src/operators/inversion.jl). The ideal one is the adiabatic
+# inversion above. An EffectiveAdiabaticInversion scales Z by η(T₁, T₂, B₁), again an
+# ordinary per-row factor, now with a source term for every tangent.
+
+@inline invert!((Ω, ∂Ω)::S, ::IdealInversion, p::AbstractTissueProperties) = invert!((Ω, ∂Ω))
+
+@inline function invert!((Ω, ∂Ω)::S, model::EffectiveAdiabaticInversion, p::AbstractTissueProperties)
+    η, ∂η∂T₁, ∂η∂T₂, ∂η∂B₁ = inversion_efficiency_and_derivatives(model, p)
+    f = (one(η), one(η), η)
+
+    ∂Ω.∂T₁ .= f .* ∂Ω.∂T₁ .+ (Zero(), Zero(), ∂η∂T₁) .* Ω
+    ∂Ω.∂T₂ .= f .* ∂Ω.∂T₂ .+ (Zero(), Zero(), ∂η∂T₂) .* Ω
+    has_B₁(∂Ω) && (∂Ω.∂B₁ .= f .* ∂Ω.∂B₁ .+ (Zero(), Zero(), ∂η∂B₁) .* Ω)
     Ω .*= f
     return nothing
 end

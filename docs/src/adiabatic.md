@@ -6,7 +6,7 @@ Pkg.activate("docs");
 ````
 
 In this example we demonstrate how to simulate an adiabatic inversion
-pulse using the AdiabaticInversion implementation in BlochSimulators.jl
+pulse using the AdiabaticPulse implementation in BlochSimulators.jl
 
 ````julia
 using BlochSimulators
@@ -44,7 +44,7 @@ Frequency modulation
 Assemble "sequence"
 
 ````julia
-sequence = BlochSimulators.AdiabaticInversion(γΔtA, Δω, Δt)
+sequence = BlochSimulators.AdiabaticPulse(γΔtA, Δω, Δt)
 ````
 
 Set parameters

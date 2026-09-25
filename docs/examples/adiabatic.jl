@@ -4,7 +4,7 @@ using Pkg;
 Pkg.activate("docs");
 
 # In this example we demonstrate how to simulate an adiabatic inversion
-# pulse using the AdiabaticInversion implementation in BlochSimulators.jl
+# pulse using the AdiabaticPulse implementation in BlochSimulators.jl
 
 using BlochSimulators
 using StructArrays, ComputationalResources
@@ -29,7 +29,7 @@ A = @. A₀ * sech(β * t)
 Δf = Δω / 2π
 
 # Assemble "sequence"
-sequence = BlochSimulators.AdiabaticInversion(γΔtA, Δω, Δt)
+sequence = BlochSimulators.AdiabaticPulse(γΔtA, Δω, Δt)
 
 # Set parameters
 B₀ = -2000:2000

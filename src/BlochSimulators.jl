@@ -37,8 +37,10 @@ export BlochSimulator, IsochromatSimulator, EPGSimulator
 include("operators/isochromat.jl")
 include("operators/epg.jl")
 include("operators/utils.jl")
+include("operators/inversion.jl")
 
 export Isochromat, ConfigurationStates
+export InversionModel, IdealInversion, EffectiveAdiabaticInversion, inversion_efficiency
 
 # Currently included example sequences:
 
@@ -57,6 +59,7 @@ include("../sequences/fisp2d.jl")
 include("../sequences/fisp3d.jl")
 
 include("../sequences/adiabatic.jl")
+export AdiabaticPulse, hyperbolic_secant_pulse
 
 # To simulate the effects of a gradient trajectory, the spatial coordinates
 # of the voxels must be known. The coordinates are stored in a `Coordinates` struct
