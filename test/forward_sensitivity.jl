@@ -364,6 +364,23 @@ end
             @test relerr(Array(m_gpu), m_cpu) < 1e-4
             @test all(θ -> relerr(Array(∂m_gpu[θ]), ∂m_cpu[θ]) < 1e-4, (:T₁, :T₂, :B₁))
 
+            # Isochromat (x, y, z) outputs
+            pulse = hyperbolic_secant_pulse(0.01, 12e-6)
+            p = parameters[1:8]
+            m_cpu, ∂m_cpu = simulate_derivatives_forward_sensitivity(pulse, p)
+            m_gpu, ∂m_gpu = simulate_derivatives_forward_sensitivity(gpu(f32(pulse)), gpu(f32(p)))
+            @test relerr(Array(m_gpu), m_cpu) < 1e-4
+            @test all(θ -> relerr(Array(∂m_gpu[θ]), ∂m_cpu[θ]) < 1e-4, (:T₁, :T₂, :B₁))
+
+            # More voxels than the GPU simulates in one go (VOXELS_PER_CHUNK in
+            # ext/BlochSimulatorsCUDAExt/simulate.jl)
+            nvoxels = 70_000
+            T₁ = collect(range(0.3, 2.0, length=nvoxels))
+            T₂ = collect(range(0.02, 0.2, length=nvoxels))
+            parameters = f32(@parameters T₁ T₂)
+            m_cpu = simulate_magnetization(f32(sequence), parameters)
+            m_gpu = simulate_magnetization(gpu(f32(sequence)), gpu(parameters))
+            @test relerr(Array(m_gpu), m_cpu) < 1e-4
         end
     end
 end

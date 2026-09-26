@@ -22,7 +22,8 @@
 # - `CPU1()`: Serial execution, one voxel at a time
 # - `CPUThreads()`: Parallel execution using Julia threads (`Threads.@threads`)
 # - `CPUProcesses()`: Distributed execution across workers using `DArray`
-# - `CUDALibs()`: GPU execution with CUDA kernels (WARPSIZE threads per voxel)
+# - `CUDALibs()`: GPU execution with CUDA kernels (a warp per voxel for EPG, a thread per
+#   voxel for isochromat simulations)
 #
 # Each strategy calls the sequence-specific `simulate_magnetization!` method that
 # numerically integrates the Bloch equations for the given sequence and tissue properties
