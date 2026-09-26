@@ -32,6 +32,7 @@ end
 const TEST_FILES = [
     "operators",
     "precision_and_gpu",
+    "sequences",
     "magnetization",
     "trajectories",
     "signal",

@@ -102,7 +102,7 @@ output_eltype(sequence::FISP2D) = unitless(eltype(sequence.RF_train))
 end
 
 # Add method to getindex to reduce sequence length with convenient syntax (idx is something like 1:nr_of_readouts)
-Base.getindex(seq::FISP2D, idx) = typeof(seq)(seq.RF_train[idx], seq.sliceprofiles, seq.TR, seq.TE, seq.max_state, seq.TI)
+Base.getindex(seq::FISP2D, idx) = FISP2D(seq.RF_train[idx], seq.sliceprofiles[idx, :], seq.TR, seq.TE, seq.max_state, seq.TI, seq.Δk_spoil)
 
 # The _value_ of max_state needs to be part of the type, not its type (<:Int)
 # That's what the Val{Ns} thing does. Because it's easy to forget doing Val(max_state) when constructing FISP2D,

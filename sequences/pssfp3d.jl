@@ -100,7 +100,7 @@ output_eltype(sequence::pSSFP3D) = eltype(sequence.RF_train)
 end
 
 # add method to getindex to reduce sequence length with convenient syntax (idx is something like 1:nr_of_readouts)
-Base.getindex(seq::pSSFP3D, idx) = typeof(seq)(seq.RF_train[idx], seq.TR, seq.γΔtRF, seq.Δt, seq.γΔtGRz, seq.z)
+Base.getindex(seq::pSSFP3D, idx) = typeof(seq)(seq.RF_train[idx], seq.TR, seq.γΔtRF, seq.Δt)
 
 # Nicer printing of sequence information in REPL
 # Base.show(io::IO, ::MIME"text/plain", seq::pSSFP3D) = begin
