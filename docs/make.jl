@@ -23,6 +23,7 @@ makedocs(;
         "Home" => "index.md",
         "Overview" => "overview.md",
         "Examples" => ["dictionary.md", "signal.md", "adiabatic.md"],
+        "Validation" => "validation.md",
         "API" => "api.md"
     ]
 )

@@ -54,6 +54,7 @@ const TEST_FILES = [
     "forward_sensitivity",
     "inversion",
     "check_sequence",
+    "validation",
 ]
 
 requested = isempty(ARGS) ? TEST_FILES : ARGS
