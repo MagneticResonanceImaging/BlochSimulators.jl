@@ -41,7 +41,6 @@ in one time step from the echo time to the start of the next RF excitation.
     B₁) estimates. [`EffectiveAdiabaticInversion`](@ref) accounts for both effects with an inversion
     efficiency η(T₁, T₂, B₁) derived from a Bloch simulation of the actual pulse.
 """
-# Create struct that holds parameters necessary for performing FISP simulations based on the EPG model
 struct FISP3D{T<:AbstractFloat,Ns,U<:AbstractVector{Complex{T}},I<:InversionModel} <: EPGSimulator{T,Ns}
     RF_train::U
     TR::T
