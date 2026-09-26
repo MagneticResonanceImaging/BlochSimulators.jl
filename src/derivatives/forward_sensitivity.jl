@@ -594,24 +594,3 @@ function _simulate!(magnetization, ∂magnetization::NamedTuple{derivatives}, ::
     end
     return nothing
 end
-
-function _simulate!(magnetization, ∂magnetization::NamedTuple{derivatives}, ::CUDALibs, sequence, parameters) where {derivatives}
-
-    function kernel!(magnetization, ∂magnetization, sequence, parameters)
-        voxel = cld((blockIdx().x - Int32(1)) * blockDim().x + threadIdx().x, WARPSIZE)
-        Ω = initialize_derivative_states(CUDALibs(), sequence, Val(derivatives))
-
-        # extra threads in the last block have no voxel to simulate
-        voxel > length(parameters) && return nothing
-
-        output = (view(magnetization, :, voxel),
-            tangents_of(map(∂m -> view(∂m, :, voxel), ∂magnetization)))
-        simulate_magnetization!(output, sequence, Ω, @inbounds parameters[voxel])
-        return nothing
-    end
-
-    nr_blocks = cld(length(parameters) * WARPSIZE, THREADS_PER_BLOCK)
-    CUDA.@sync @cuda blocks = nr_blocks threads = THREADS_PER_BLOCK kernel!(
-        magnetization, ∂magnetization, sequence, parameters)
-    return nothing
-end

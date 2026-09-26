@@ -92,10 +92,13 @@ println("Current number of workers: $(nworkers())")
 @time dictionary = simulate_magnetization(CPUProcesses(), sequence, parameters);
 ````
 
-To perform simulations on GPU, we first convert the sequence and parameters
-to single precision and then send them to the gpu
+To perform simulations on GPU, we first load CUDA.jl, which loads the GPU
+support of BlochSimulators. Then we convert the sequence and parameters to
+single precision and send them to the gpu
 
 ````julia
+using CUDA
+
 cu_sequence = sequence |> f32 |> gpu;
 cu_parameters = parameters |> f32 |> gpu;
 ````
@@ -105,7 +108,7 @@ on GPU, can take some time.
 
 ````julia
 println("Active CUDA device:");
-BlochSimulators.CUDA.device();
+CUDA.device()
 
 @time dictionary = simulate_magnetization(CUDALibs(), cu_sequence, cu_parameters);
 ````
@@ -119,9 +122,9 @@ Call the pre-compiled version
 Increase the number of parameters:
 
 ````julia
-T₁ = rand(500_000)
-T₂ = 0.1 * T₁
-cu_parameters = (@parameters T₁ T₂) |> f32 |> gpu
+T₁ = collect(logrange(0.1, 5.0, 500_000));
+T₂ = 0.1 * T₁;
+cu_parameters = (@parameters T₁ T₂) |> f32 |> gpu;
 
 @time dictionary = simulate_magnetization(CUDALibs(), cu_sequence, cu_parameters);
 ````

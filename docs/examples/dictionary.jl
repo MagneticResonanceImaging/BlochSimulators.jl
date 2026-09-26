@@ -69,8 +69,11 @@ addprocs(4, exeflags="--project=.")
 println("Current number of workers: $(nworkers())")
 @time dictionary = simulate_magnetization(CPUProcesses(), sequence, parameters);
 
-# To perform simulations on GPU, we first convert the sequence and parameters
-# to single precision and then send them to the gpu
+# To perform simulations on GPU, we first load CUDA.jl, which loads the GPU
+# support of BlochSimulators. Then we convert the sequence and parameters to
+# single precision and send them to the gpu
+
+using CUDA
 
 cu_sequence = sequence |> f32 |> gpu;
 cu_parameters = parameters |> f32 |> gpu;
@@ -78,7 +81,7 @@ cu_parameters = parameters |> f32 |> gpu;
 # Remember, the first time a compilation procedure takes place which, especially
 # on GPU, can take some time.
 println("Active CUDA device:");
-BlochSimulators.CUDA.device()
+CUDA.device()
 
 @time dictionary = simulate_magnetization(CUDALibs(), cu_sequence, cu_parameters);
 # Call the pre-compiled version

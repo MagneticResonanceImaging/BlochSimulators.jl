@@ -2,7 +2,6 @@ module BlochSimulators
 
 # Load external packages
 using ComputationalResources
-using CUDA
 using Distributed
 using DistributedArrays
 using Functors
@@ -89,14 +88,8 @@ include("utils/precision.jl")
 # 1. Single CPU computation
 # 2. Multi-threaded CPU computation (when Julia is started with -t <nthreads>)
 # 2. Multi-process CPU computation (when workers are added with addprocs)
-# 3. CUDA GPU computation
+# 3. CUDA GPU computation (once CUDA.jl is loaded, see ext/BlochSimulatorsCUDAExt)
 # ComputationalResources is used to dispatch on the different computational resources.
-
-# Hard-coded nr of threads per block on GPU
-if CUDA.has_cuda_gpu()
-    const WARPSIZE = CUDA.warpsize(device())
-    const THREADS_PER_BLOCK = 64
-end
 
 # Main function to call a sequence simulator with a set of input parameters are defined in simulate.jl
 include("simulate/magnetization.jl")

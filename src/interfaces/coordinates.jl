@@ -32,7 +32,7 @@ Create a 3D meshgrid of Coordinates from arrays `x`, `y`, and `z` and return it 
 """
 function make_coordinates(x::T, y::T, z::T) where {T<:AbstractArray{<:Real}}
 
-    if x isa CuArray
+    if _is_gpu_array(x)
         throw(ArgumentError("Use gpu(make_coordinates(x, y, z)) instead of make_coordinates(gpu(x), gpu(y), gpu(z))"))
     end
 

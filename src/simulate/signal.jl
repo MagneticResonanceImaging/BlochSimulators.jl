@@ -278,27 +278,6 @@ function _signal_per_coil!(signal, ::CPUThreads, magnetization, parameters, traj
     end
 end
 
-function _signal_per_coil!(signal, ::CUDALibs, magnetization, parameters, trajectory, coordinates, coil_sensitivities)
-    # GPU execution: Launch CUDA kernel with one thread per time point
-    nr_blocks = cld(nsamples(trajectory), THREADS_PER_BLOCK)
-
-    # Define kernel function to be run by each thread on GPU
-    magnetization_to_signal_kernel!(signal, magnetization, parameters, trajectory, coordinates, coil_sensitivities) = begin
-
-        # Calculate time point index from block and thread indices
-        time_point = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-
-        # Compute signal at this time point if within bounds
-        if time_point <= nsamples(trajectory)
-            signal_at_time_point!(signal, time_point, magnetization, parameters, trajectory, coordinates, coil_sensitivities)
-        end
-        return nothing
-    end
-
-    # Launch kernel and synchronize
-    CUDA.@sync @cuda blocks = nr_blocks threads = THREADS_PER_BLOCK magnetization_to_signal_kernel!(signal, magnetization, parameters, trajectory, coordinates, coil_sensitivities)
-end
-
 #=========================================================================================
 # SIGNAL COMPUTATION AT INDIVIDUAL TIME POINTS
 =========================================================================================#

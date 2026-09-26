@@ -81,13 +81,13 @@ coil_sensitivities = [vec(coil₁);; vec(coil₂)]
 
 resource = CUDALibs()
 
+using CUDA # loads the GPU support of BlochSimulators
+
 sequence = gpu(f32(sequence))
 parameters = gpu(f32(parameters)) |> vec
 trajectory = gpu(f32(trajectory))
 coil_sensitivities = gpu(f32(coil_sensitivities))
 coordinates = gpu(f32(coordinates)) |> vec
-
-using BlochSimulators.CUDA
 
 resource = CUDALibs()
 

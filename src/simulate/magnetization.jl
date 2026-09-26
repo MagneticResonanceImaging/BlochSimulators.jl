@@ -146,13 +146,6 @@ function simulate_magnetization(sequence, parameters)
 end
 
 """
-However, if the `parameters` are a CuArray, the simulation is performed on the GPU.
-"""
-function simulate_magnetization(sequence, parameters::CuArray)
-    simulate_magnetization(CUDALibs(), gpu(sequence), parameters)
-end
-
-"""
 If the `parameters` are a DArray, the simulation is performed on the multiple workers.
 """
 function simulate_magnetization(sequence, parameters::DArray)
@@ -219,43 +212,6 @@ function simulate_magnetization!(magnetization, ::CPUProcesses, sequence, parame
     return nothing
 end
 
-function simulate_magnetization!(magnetization, ::CUDALibs, sequence, parameters)
-    # GPU execution: Launch CUDA kernel with multiple threads per voxel
-    # Each voxel gets assigned `WARPSIZE` threads for coalesced memory access
-    # Since `THREADS_PER_BLOCK` is fixed, the number of required blocks is calculated
-    nr_voxels = length(parameters)
-    nr_blocks = cld(nr_voxels * WARPSIZE, THREADS_PER_BLOCK)
-
-    # Define kernel function (executed on GPU)
-    magnetization_kernel!(magnetization, sequence, parameters) = begin
-
-        # Calculate voxel index from block and thread indices
-        voxel = cld((blockIdx().x - Int32(1)) * blockDim().x + threadIdx().x, WARPSIZE)
-
-        # Initialize state that gets updated during time integration
-        states = initialize_states(CUDALibs(), sequence)
-
-        # Do nothing if voxel index is out of bounds (extra threads in last block)
-        if voxel > length(parameters)
-            return nothing
-        end
-
-        # Run simulation for this voxel
-        simulate_magnetization!(
-            view(magnetization, :, voxel),
-            sequence,
-            states,
-            @inbounds parameters[voxel]
-        )
-    end
-
-    # Launch kernel and synchronize
-    CUDA.@sync begin
-        @cuda blocks = nr_blocks threads = THREADS_PER_BLOCK magnetization_kernel!(magnetization, sequence, parameters)
-    end
-    return nothing
-end
-
 #=========================================================================================
 # INTERNAL UTILITIES
 #
@@ -297,10 +253,6 @@ the public API.
 """
 function _allocate_array_on_resource(::Union{CPU1,CPUThreads}, _eltype, _size)
     return zeros(_eltype, _size...)
-end
-
-function _allocate_array_on_resource(::CUDALibs, _eltype, _size)
-    return CUDA.zeros(_eltype, _size...)
 end
 
 function _allocate_array_on_resource(::CPUProcesses, _eltype, _size)
