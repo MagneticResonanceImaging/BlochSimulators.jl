@@ -17,28 +17,39 @@ or
 `pkg> dev BlochSimulators` (if you want to make modificatios to the source code).
 #### Basic Usage
 
-Here's a minimal example simulating the magnetization for a single voxel using the EPG model with a FISP sequence:
+Simulate a gradient-spoiled (FISP) sequence with a varying flip angle train using the EPG model, for three combinations of T₁ and T₂:
 
 ```julia
 using BlochSimulators
 
-# Define tissue properties (T1=1.0s, T2=0.1s)
-parameters = @parameters T1=1.0 T2=0.1
+nTR = 500
+RF_train = complex.(range(5.0, 60.0, length=nTR)) # flip angles in degrees
+TR, TE, TI = 0.010, 0.005, 0.020                  # seconds
+max_state = 64                                    # EPG configuration states, a multiple of 32
+sequence = FISP2D(RF_train, TR, TE, max_state, TI)
 
-# Use a predefined FISP sequence (replace with your actual sequence definition)
-# Note: You might need to define or load a sequence struct first.
-# This is a placeholder example.
-struct MyFISPSequence <: EPGSimulator end # Placeholder
-sequence = MyFISPSequence() # Placeholder
+T₁ = [0.8, 1.0, 1.2]    # seconds
+T₂ = [0.05, 0.08, 0.10] # seconds
+parameters = @parameters T₁ T₂ # with variables named T1 and T2: `@parameters T1 T2`
 
-# Simulate magnetization
-magnetization = simulate_magnetization(CPU1(), sequence, parameters)
+# Transverse magnetization at each echo time, of size (nTR, 3)
+magnetization = simulate_magnetization(sequence, parameters)
 
-println("Final magnetization (Mx, My, Mz): ", magnetization)
+# The same, together with its exact derivatives w.r.t. T₁ and T₂
+magnetization, ∂magnetization = simulate_derivatives_forward_sensitivity(sequence, parameters)
+∂magnetization.T₁
 ```
 
-Please see the `examples` directory and the [documentation](https://MagneticResonanceImaging.github.io/BlochSimulators.jl/dev) for more complete examples, including sequence definitions and signal simulation.
+To run the same simulation on an NVIDIA GPU, load CUDA.jl and move the sequence and parameters to the GPU:
 
+```julia
+using CUDA
+magnetization = simulate_magnetization(gpu(f32(sequence)), gpu(f32(parameters)))
+```
+
+GPU support is a package extension: it is loaded once `using CUDA` is done next to `using BlochSimulators`, so CPU-only users don't need to install CUDA.jl.
+
+The built-in sequences are in [`sequences/`](sequences). If your protocol differs from all of them (e.g. RF spoiling, a different preparation module, varying TR), you can write your own sequence simulator, using the built-in ones as templates: see [Adding a New Sequence](#adding-a-new-sequence) below.
 
 #### Examples
 
@@ -103,12 +114,13 @@ The package uses `ComputationalResources.jl` to abstract computational backends:
 - `CPU1()` → Single-threaded execution
 - `CPUThreads()` → Multi-threaded (respects `JULIA_NUM_THREADS`)
 - `CPUProcesses()` → Distributed computing (works with `DArray`s)
-- `CUDALibs()` → GPU execution
+- `CUDALibs()` → GPU execution (requires `using CUDA`)
 
 Key design decisions:
+- CUDA.jl is a weak dependency. All GPU-specific code (kernels, the GPU methods of the EPG operators, the conversion to `CuArray`s in `gpu`) lives in the package extension `ext/BlochSimulatorsCUDAExt/`, which Julia loads automatically once CUDA is loaded
 - The `gpu(x)` function (using `Functors.jl`) recursively moves structs to GPU, converting Arrays to CuArrays
 - Sequences/trajectories must be marked with `@functor` to enable GPU transfer
-- On GPU, simulations use a fixed `THREADS_PER_BLOCK` with `WARPSIZE` (hardcoded to 32 for CUDA devices) threads per voxel
+- On GPU, simulations use a fixed `THREADS_PER_BLOCK`. EPG simulations use a warp (`WARPSIZE`, 32 threads) per voxel, spreading the configuration states over its lanes; isochromat simulations use one thread per voxel
 - **Type stability and zero-allocation** in kernel code is critical for GPU performance
 
 #### 4. The Two-Level Simulation API
@@ -147,9 +159,18 @@ src/
 ├── simulate/                     # High-level simulation orchestration
 │   ├── magnetization.jl         # simulate_magnetization + resource dispatch
 │   └── signal.jl                # simulate_signal + trajectory integration
+├── derivatives/                  # Partial derivatives w.r.t. tissue properties
+│   ├── finite_difference.jl
+│   ├── forward_sensitivity.jl   # Exact derivatives, shared pieces + EPG operators
+│   └── forward_sensitivity_isochromat.jl
 └── utils/                        # Cross-cutting concerns
     ├── gpu.jl                   # gpu() function, Functors integration
-    └── precision.jl             # f32/f64 precision conversion
+    ├── precision.jl             # f32/f64 precision conversion
+    └── check_sequence.jl        # check_sequence() for custom sequence implementations
+
+ext/BlochSimulatorsCUDAExt/       # GPU support, loaded with `using CUDA`
+├── epg.jl                       # GPU methods of the EPG operators (warp shuffles etc.)
+└── simulate.jl                  # CUDA kernels
 
 sequences/                        # Example sequence implementations
 ├── fisp2d.jl, fisp3d.jl         # Gradient-spoiled FISP (EPG-based)
@@ -166,45 +187,54 @@ trajectories/                     # Example trajectory implementations
 
 ### Adding a New Sequence
 
-To implement a custom pulse sequence (e.g., for a novel contrast mechanism):
+Only write your own sequence simulator if none of the built-in ones fits your protocol. The easiest way is to copy the built-in sequence closest to yours and modify it:
+
+- [fisp2d.jl](sequences/fisp2d.jl), [fisp3d.jl](sequences/fisp3d.jl): gradient-spoiled sequences with the EPG model, with an inversion prepulse (and slice profiles in 2D)
+- [pssfp2d.jl](sequences/pssfp2d.jl), [pssfp3d.jl](sequences/pssfp3d.jl): balanced sequences with the isochromat model, with a time-discretized RF pulse (and slice profiles in 2D)
+- [generic3d.jl](sequences/generic3d.jl): arbitrary RF and gradient waveforms with the isochromat model
+
+What a sequence simulator consists of:
 
 1. **Choose your model**: Subtype either `IsochromatSimulator{T}` or `EPGSimulator{T,Ns}`
    - Isochromat model: More general, handles arbitrary gradients, but computationally expensive
    - EPG model: Fast and efficient for gradient-spoiled sequences, which would otherwise require simulating many isochromats per voxel. Somewhat less flexible than the isochromat model.
-   
-2. **Create a struct** with all sequence parameters:
+
+2. **Create a struct** with all sequence parameters. Give array fields a type parameter (so that `gpu` can replace them by `CuArray`s), and let `T` follow from the field types (so that `f32` can convert the struct):
    ```julia
-   struct MySequence{T, Ns} <: EPGSimulator{T, Ns}
-       RF_train::Vector{Complex{T}}  # Flip angles and phases
-       TR::T                          # Repetition time
-       TE::T                          # Echo time
-       max_state::Val{Ns}             # Maximum EPG state order
+   struct MySequence{T, Ns, U<:AbstractVector{Complex{T}}} <: EPGSimulator{T, Ns}
+       RF_train::U          # Flip angles (degrees) and phases (radians)
+       TR::T                # Repetition time
+       TE::T                # Echo time
+       max_state::Val{Ns}   # Number of EPG configuration states, a multiple of 32
    end
    ```
-   
-3. **Mark it as a functor** (required for GPU support and precision conversion):
+
+3. **Make it convertible** (required for GPU support and precision conversion):
    ```julia
-   @functor MySequence
-   @adapt_structure MySequence
+   BlochSimulators.@functor MySequence
+   BlochSimulators.@adapt_structure MySequence
    ```
 
-4. **Implement required methods**:
+4. **Implement required methods** (add methods to `BlochSimulators.output_size` etc.):
    ```julia
    output_size(seq::MySequence) = length(seq.RF_train)
-   output_eltype(seq::MySequence) = Complex{Float64}
-   
+   output_eltype(seq::MySequence{T}) where {T} = Complex{T}
+
    function simulate_magnetization!(magnetization, sequence::MySequence, Ω, p::AbstractTissueProperties)
        # Use operators from operators/epg.jl or operators/isochromat.jl
-       # Example: excite!(Ω, flip_angle), decay!(Ω, E₁, E₂), shift!(Ω)
-       # Store results in magnetization array
+       # Example: excite!(Ω, RF, p), decay!(Ω, E₁, E₂), regrowth!(Ω, E₁), dephasing!(Ω)
+       # Store results with sample_transverse!(magnetization, index, Ω)
    end
    ```
 
-5. **Important constraints**:
+5. **Compute relaxation with `E₁(Ω, Δt, T₁)` and `E₂(Ω, Δt, T₂)`**, not with `exp(-Δt/T₁)`. They dispatch on the state, which is what lets `simulate_derivatives_forward_sensitivity` reuse your `simulate_magnetization!` unchanged to compute exact derivatives.
+
+6. **Check it** with `check_sequence(sequence, parameters)`, which tests the interface, allocations, precision conversion, forward-sensitivity derivatives and, when CUDA is loaded, GPU execution.
+
+7. **Important constraints**:
    - `simulate_magnetization!` must be **type-stable** and **non-allocating**
    - Pre-compute expensive quantities (like decay constants) once per voxel
    - Use `@inbounds` for performance-critical loops after verifying correctness
-   - Look at [fisp2d.jl](sequences/fisp2d.jl) or [pssfp2d.jl](sequences/pssfp2d.jl) as templates
 
 ### Adding a New Trajectory
 
@@ -240,7 +270,7 @@ To implement a custom k-space trajectory (e.g., for non-Cartesian imaging):
 1. **Type stability is paramount**: Use `@code_warntype` to check your `simulate_magnetization!` implementation. Any red warnings will kill performance.
 
 2. **GPU-specific considerations**:
-   - Each voxel gets multiple threads (WARPSIZE) for coalesced memory access
+   - EPG: each voxel gets a warp (32 threads), each holding `Ns/32` configuration states. Isochromat: one thread per voxel
    - Avoid dynamic allocations in kernel code (use pre-allocated buffers)
    - StaticArrays are your friend for small fixed-size arrays
 
@@ -250,7 +280,11 @@ To implement a custom k-space trajectory (e.g., for non-Cartesian imaging):
 
 ### Testing and Validation
 
-- Unit tests in `test/runtests.jl` verify core operators and interfaces
+- Tests live in `test/`, one file per area. Run all of them, or only some by name:
+  ```julia
+  Pkg.test("BlochSimulators", julia_args=["--check-bounds=auto"], test_args=["forward_sensitivity", "validation"])
+  ```
+- `test/validation.jl` compares the built-in sequences against closed-form steady-state solutions (see the Validation page of the documentation)
 - Benchmark scripts in `benchmarks/` compare performance across backends
 - When adding a new sequence, validate against known analytical solutions or published results when possible
 - Use `docs/examples/` to create reproducible examples for your sequence

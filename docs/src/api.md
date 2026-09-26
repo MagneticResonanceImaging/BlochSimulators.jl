@@ -105,10 +105,16 @@ Modules = [BlochSimulators]
 Pages   = ["simulate/signal.jl"]
 ```
 
+## Derivatives
+```@autodocs
+Modules = [BlochSimulators]
+Pages   = ["derivatives/forward_sensitivity.jl", "derivatives/forward_sensitivity_isochromat.jl", "derivatives/finite_difference.jl"]
+```
+
 ## Utility Functions
 ```@autodocs
 Modules = [BlochSimulators]
-Pages   = ["utils/precision.jl", "utils/gpu.jl"]
+Pages   = ["utils/precision.jl", "utils/gpu.jl", "utils/check_sequence.jl"]
 ```
 
 ## Index
