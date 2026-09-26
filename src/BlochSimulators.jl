@@ -101,9 +101,10 @@ export simulate_magnetization, simulate_signal, magnetization_to_signal, phase_e
 include("derivatives/finite_difference.jl")
 export simulate_derivatives_finite_difference
 
-# Exact T₁/T₂ derivatives for FISP3D via forward sensitivity propagation
+# Exact T₁/T₂/B₁ derivatives via forward sensitivity propagation
 # (as opposed to finite differences)
 include("derivatives/forward_sensitivity.jl")
+include("derivatives/forward_sensitivity_isochromat.jl")
 export simulate_derivatives_forward_sensitivity
 
 end # module

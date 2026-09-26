@@ -289,3 +289,81 @@
         end
     end
 end
+
+@testset "Isochromat forward sensitivity derivatives" begin
+
+    five_point_central(f, x, h) = (-f(x + 2h) + 8f(x + h) - 8f(x - h) + f(x - 2h)) / (12h)
+    relerr(a, b) = norm(a - b) / norm(b)
+    # relative, but with an absolute floor for derivatives that are exactly 0
+    close_to(a, b) = norm(a - b) <= 1e-6 * norm(b) + 1e-12
+    # compare Isochromat outputs component-wise
+    flat(x) = eltype(x) <: Isochromat ? reinterpret(eltype(eltype(x)), x) : x
+
+    nTR = 30
+    RF_train = complex.(range(10.0, 70.0, length=nTR)) .* cis.(0.3 .* (1:nTR))
+    Δt = (ex=2e-4, inv=0.02, pr=0.004)
+    γΔtRF = SVector(0.2, 0.5, 0.3) .* deg2rad(1.0)
+
+    # a hard-pulse bSSFP-like sequence with gradients, as waveforms
+    nt = 60
+    RF = complex.(zeros(nt))
+    RF[1:10:end] .= cis(0.4) * deg2rad(30) / (26753.0 * 1e-5) # rad/s
+    GR = repeat([0.02, -0.01, 0.005], 1, nt) .* repeat(sign.(sin.(2π .* (1:nt) ./ 10))', 3, 1)
+    generic = Generic3D(RF, GR, iseven.(1:nt), fill(1e-5, nt))
+
+    @testset "$(nameof(typeof(sequence))) vs finite differences" for (sequence, p) in [
+        (pSSFP3D(RF_train, 0.01, γΔtRF, Δt), T₁T₂B₁B₀(0.9, 0.07, 0.93, 13.0)),
+        (pSSFP2D(RF_train, 0.01, γΔtRF, Δt, (ex=0.3, inv=0.0, pr=-0.15), SVector(-0.2, 0.0, 0.1, 0.25)),
+            T₁T₂B₁B₀(0.9, 0.07, 0.93, 13.0)),
+        (hyperbolic_secant_pulse(0.01, 12e-6), T₁T₂B₁B₀(0.9, 0.07, 0.93, 13.0)),
+        (generic, T₁T₂B₁B₀xyz(0.9, 0.07, 0.93, 13.0, 0.3, -0.2, 0.1)),
+        # B₁ = 0 without B₀: the RF rotations have zero angle, so nothing
+        # is excited and the T₁ and T₂ derivatives are 0, but the B₁
+        # derivative is not
+        (pSSFP3D(RF_train, 0.01, γΔtRF, Δt), T₁T₂B₁(0.9, 0.07, 0.0)),
+    ]
+        signal(p) = vec(simulate_magnetization(CPU1(), sequence, StructVector([p])))
+        m, ∂m = simulate_derivatives_forward_sensitivity(sequence, StructVector([p]))
+
+        @test propertynames(∂m) == (:T₁, :T₂, :B₁)
+        # tracking sensitivities must not disturb the magnetization itself
+        @test vec(m) == signal(p)
+
+        for (i, θ) in enumerate((:T₁, :T₂, :B₁))
+            # vary one property; B₁ = 0 gets an absolute step
+            vary(t) = typeof(p)(setindex(SVector(Tuple(p)), t, i)...)
+            h = iszero(p[i]) ? 1e-5 : 1e-5 * p[i]
+            fd = five_point_central(t -> flat(signal(vary(t))), p[i], h)
+            @test close_to(flat(vec(∂m[θ])), fd)
+        end
+    end
+
+    @testset "Supported derivatives and requested subsets" begin
+        sequence = pSSFP3D(RF_train, 0.01, γΔtRF, Δt)
+        parameters = StructVector([T₁T₂(0.9, 0.07)])
+        m, ∂m = simulate_derivatives_forward_sensitivity(sequence, parameters)
+        @test propertynames(∂m) == (:T₁, :T₂)
+        _, ∂T₂ = simulate_derivatives_forward_sensitivity((:T₂,), sequence, parameters)
+        @test ∂T₂.T₂ ≈ ∂m.T₂
+        @test_throws ErrorException simulate_derivatives_forward_sensitivity((:B₁,), sequence, parameters)
+    end
+
+    @testset "GPU Float32 matches CPU Float64" begin
+        if CUDA.functional()
+            sequence = pSSFP3D(RF_train, 0.01, γΔtRF, Δt)
+            nvoxels = 64
+            T₁ = collect(range(0.3, 2.0, length=nvoxels))
+            T₂ = collect(range(0.02, 0.2, length=nvoxels))
+            B₁ = collect(range(0.8, 1.2, length=nvoxels))
+            B₀ = collect(range(-20.0, 20.0, length=nvoxels))
+            parameters = @parameters T₁ T₂ B₁ B₀
+
+            m_cpu, ∂m_cpu = simulate_derivatives_forward_sensitivity(sequence, parameters)
+            m_gpu, ∂m_gpu = simulate_derivatives_forward_sensitivity(gpu(f32(sequence)), gpu(f32(parameters)))
+
+            @test relerr(Array(m_gpu), m_cpu) < 1e-4
+            @test all(θ -> relerr(Array(∂m_gpu[θ]), ∂m_cpu[θ]) < 1e-4, (:T₁, :T₂, :B₁))
+
+        end
+    end
+end

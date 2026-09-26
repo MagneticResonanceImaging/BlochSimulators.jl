@@ -74,7 +74,28 @@ formula.
 """
 @inline function rotate(m::Isochromat{T}, γΔtRF, γΔtGR, r, Δt, p::AbstractTissueProperties, ΔtΔω=zero(T)) where {T}
 
-    # Determine rotation vector a
+    a = rotation_vector(T, γΔtRF, γΔtGR, r, Δt, p, ΔtΔω)
+
+    # Angle of rotation is norm of rotation vector
+    θ = norm(a)
+
+    if !iszero(θ)
+        # Normalize rotation vector
+        k = inv(θ) * a
+        sinθ, cosθ = sincos(θ)
+        m = rodrigues(m, k, sinθ, cosθ)
+    end
+
+    return m
+end
+
+"""
+    rotation_vector(T, γΔtRF, γΔtGR, r, Δt, p::AbstractTissueProperties, ΔtΔω)
+
+The rotation that [`rotate`](@ref) applies, as a vector along the rotation axis
+whose length is the rotation angle (radians).
+"""
+@inline function rotation_vector(::Type{T}, γΔtRF, γΔtGR, r, Δt, p::AbstractTissueProperties, ΔtΔω) where {T}
     aˣ = real(γΔtRF)
     aʸ = -imag(γΔtRF)
     aᶻ = -(γΔtGR ⋅ r + ΔtΔω)
@@ -83,20 +104,16 @@ formula.
     hasB₁(p) && (aʸ *= p.B₁)
     hasB₀(p) && (aᶻ -= Δt * 2 * π * p.B₀)
 
-    a = SVector{3,T}(aˣ, aʸ, aᶻ)
+    return SVector{3,T}(aˣ, aʸ, aᶻ)
+end
 
-    # Angle of rotation is norm of rotation vector
-    θ = norm(a)
+"""
+    rodrigues(m::Isochromat, k, sinθ, cosθ)
 
-    if !iszero(θ)
-        # Normalize rotation vector
-        k = inv(θ) * a
-        # Perform rotation (Rodrigues formula)
-        sinθ, cosθ = sincos(θ)
-        m = (cosθ * m) + (sinθ * k × m) + (k ⋅ m * (one(T) - cosθ) * k)
-    end
-
-    return m
+Rotate `m` by angle `θ` around the unit vector `k` (Rodrigues' rotation formula).
+"""
+@inline function rodrigues(m::Isochromat{T}, k, sinθ, cosθ) where {T}
+    return (cosθ * m) + (sinθ * k × m) + (k ⋅ m * (one(T) - cosθ) * k)
 end
 
 """
@@ -106,12 +123,20 @@ Rotation of Isochromat without RF (so around z-axis only) due to gradients and B
 refocussing slice select gradient).
 """
 @inline function rotate(m::Isochromat, γΔtGR, r, Δt, p::AbstractTissueProperties)
-    # Determine rotation angle θ
+    sinθ, cosθ = sincos(precession_angle(γΔtGR, r, Δt, p))
+    return rotxy(sinθ, cosθ, m)
+end
+
+"""
+    precession_angle(γΔtGR, r, Δt, p::AbstractTissueProperties)
+
+Angle (radians) of the rotation around the z-axis that gradients and B₀ cause in
+the absence of RF.
+"""
+@inline function precession_angle(γΔtGR, r, Δt, p::AbstractTissueProperties)
     θ = -γΔtGR ⋅ r
     hasB₀(p) && (θ -= Δt * π * p.B₀ * 2)
-    # Perform rotation in xy plane
-    sinθ, cosθ = sincos(θ)
-    return rotxy(sinθ, cosθ, m)
+    return θ
 end
 
 # Decay

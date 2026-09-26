@@ -1,4 +1,4 @@
-# Forward sensitivity propagation for EPG-based sequences
+# Forward sensitivity propagation
 # -----------------------------------------------------------
 # Purpose: compute exact derivatives of a (discrete, truncated) EPG
 # simulation w.r.t. T₁ and T₂ (and, when the tissue properties carry a B₁,
@@ -11,7 +11,13 @@
 # `EPGSimulator{T,Ns}` sequence is built from -- FISP2D uses exactly the same
 # operator set as FISP3D. So the operator overloads below work for any such
 # sequence, and the public `simulate_derivatives_forward_sensitivity` API is
-# written against `EPGSimulator`, not `FISP3D`.
+# written against `BlochSimulator`, not `FISP3D`.
+#
+# The isochromat model gets the same treatment in
+# forward_sensitivity_isochromat.jl, which reuses the shared pieces defined
+# here: `Zero`, the tangent structs, `S`, the relaxation factors, sampling and
+# the driver. What follows describes the EPG model; the isochromat file notes
+# where it differs.
 #
 # How it works
 # ------------
@@ -506,8 +512,9 @@ end
     simulate_derivatives_forward_sensitivity(requested_derivatives, sequence, parameters)
     simulate_derivatives_forward_sensitivity(sequence, parameters)
 
-Simulate the magnetization of an EPG-based sequence (e.g. [`FISP3D`](@ref),
-[`FISP2D`](@ref)) together with its exact partial derivatives with respect to
+Simulate the magnetization of a sequence -- EPG-based (e.g. [`FISP3D`](@ref),
+[`FISP2D`](@ref)) or isochromat-based (e.g. [`pSSFP3D`](@ref)) -- together
+with its exact partial derivatives with respect to
 the requested tissue properties. The derivatives come from forward sensitivity
 propagation inside the simulation -- not finite differences, not reverse-mode
 AD -- so they are exact up to floating point rather than limited by a step
@@ -529,7 +536,7 @@ returns).
 """
 function simulate_derivatives_forward_sensitivity(
     requested_derivatives::Symbols,
-    sequence::EPGSimulator,
+    sequence::BlochSimulator,
     parameters::AbstractVector{<:AbstractTissueProperties}
 )
     _validate_derivatives(requested_derivatives, parameters)
@@ -549,14 +556,14 @@ function simulate_derivatives_forward_sensitivity(
         map(θ -> ∂propagated[θ], requested_derivatives))
 end
 
-simulate_derivatives_forward_sensitivity(sequence::EPGSimulator, parameters::AbstractVector{<:AbstractTissueProperties}) =
+simulate_derivatives_forward_sensitivity(sequence::BlochSimulator, parameters::AbstractVector{<:AbstractTissueProperties}) =
     simulate_derivatives_forward_sensitivity(supported_derivatives(parameters), sequence, parameters)
 
 # Single-voxel convenience methods.
-simulate_derivatives_forward_sensitivity(requested_derivatives::Symbols, sequence::EPGSimulator, p::AbstractTissueProperties) =
+simulate_derivatives_forward_sensitivity(requested_derivatives::Symbols, sequence::BlochSimulator, p::AbstractTissueProperties) =
     simulate_derivatives_forward_sensitivity(requested_derivatives, sequence, StructVector([p]))
 
-simulate_derivatives_forward_sensitivity(sequence::EPGSimulator, p::AbstractTissueProperties) =
+simulate_derivatives_forward_sensitivity(sequence::BlochSimulator, p::AbstractTissueProperties) =
     simulate_derivatives_forward_sensitivity(sequence, StructVector([p]))
 
 # Allocate the magnetization and one derivative array per propagated property,

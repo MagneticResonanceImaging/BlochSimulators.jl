@@ -29,6 +29,20 @@ function make_T₁T₂_structarray(nvoxels)
     return @parameters T₁ T₂
 end
 
+# Tissue properties with a position, as Generic2D/Generic3D need, since
+# position is not among the built-in tissue properties
+struct T₁T₂B₁B₀xyz{T} <: BlochSimulators.AbstractTissueProperties{7,T}
+    T₁::T
+    T₂::T
+    B₁::T
+    B₀::T
+    x::T
+    y::T
+    z::T
+end
+BlochSimulators.hasB₁(::T₁T₂B₁B₀xyz) = true
+BlochSimulators.hasB₀(::T₁T₂B₁B₀xyz) = true
+
 const TEST_FILES = [
     "operators",
     "precision_and_gpu",

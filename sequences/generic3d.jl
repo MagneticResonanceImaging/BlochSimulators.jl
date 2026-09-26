@@ -56,10 +56,10 @@ output_eltype(sequence::Generic3D) = Isochromat{eltype(sequence.GR)}
         m = rotate(m, γΔtRF, γΔtGR, (x, y, z), Δt[t], p)
 
         # T₁ and T₂ decay, T₁ regrowth
-        E₁, E₂ = exp(-Δt[t] / T₁), exp(-Δt[t] / T₂)
+        E₁ᵗ, E₂ᵗ = E₁(m, Δt[t], T₁), E₂(m, Δt[t], T₂)
 
-        m = decay(m, E₁, E₂)
-        m = regrowth(m, E₁)
+        m = decay(m, E₁ᵗ, E₂ᵗ)
+        m = regrowth(m, E₁ᵗ)
 
         # sample magnetization
         if sequence.sample[t]
