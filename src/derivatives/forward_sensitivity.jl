@@ -534,10 +534,7 @@ function simulate_derivatives_forward_sensitivity(
 )
     _validate_derivatives(requested_derivatives, parameters)
 
-    on_gpu = _all_arrays_are_cuarrays(sequence)
-    on_gpu == _all_arrays_are_cuarrays(parameters) || throw(ArgumentError(
-        "Both sequence and parameters must be on the GPU or not on the GPU"))
-    resource = on_gpu ? CUDALibs() : CPUThreads()
+    resource = _on_gpu(sequence, parameters) ? CUDALibs() : CPUThreads()
 
     # Spelled out with literal `Val`s so that each branch is concretely typed;
     # deriving the set from the runtime `requested_derivatives` instead leaves

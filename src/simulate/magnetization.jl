@@ -121,14 +121,7 @@ computations.
 """
 function simulate_magnetization(sequence::BlochSimulator, parameters::StructArray)
 
-    sequence_on_gpu = _all_arrays_are_cuarrays(sequence)
-    parameters_on_gpu = _all_arrays_are_cuarrays(parameters)
-
-    if xor(sequence_on_gpu, parameters_on_gpu)
-        throw(ArgumentError("Both sequence and parameters must be on the GPU or not on the GPU"))
-    end
-
-    if sequence_on_gpu && parameters_on_gpu
+    if _on_gpu(sequence, parameters)
         return simulate_magnetization(CUDALibs(), sequence, parameters)
     elseif parameters isa DArray
         return simulate_magnetization(CPUProcesses(), sequence, parameters)

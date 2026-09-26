@@ -55,16 +55,42 @@ _gpu(x::AbstractVector{<:StructArray}) = [gpu(x[i]) for i in eachindex(x)]
 export gpu
 
 """
-    _all_arrays_are_cuarrays(x)
+    _on_gpu(sequence, parameters)
 
-Returns `true` if all `AbstractArray` fields in `x` are `CuArray`s and `false` otherwise. Will also `return` if `x` does not have any `AbstractArray` fields.
+Whether the simulation of `sequence` for `parameters` should run on the GPU:
+`true` when the parameters are on the GPU, `false` when they are not. Throws
+if the sequence is on the other device. A sequence without arrays (other than
+`StaticArray`s, which `gpu` leaves as they are) works on either.
 """
-function _all_arrays_are_cuarrays(x)
-    for name in propertynames(x)
-        property = getproperty(x, name)
-        if (property isa AbstractArray) && !_is_gpu_array(property)
-            return false
+function _on_gpu(sequence, parameters)
+    on_gpu = _arrays_on_gpu(parameters) === true
+    sequence_on_gpu = _arrays_on_gpu(sequence)
+    (sequence_on_gpu === nothing || sequence_on_gpu == on_gpu) ||
+        throw(ArgumentError("Both sequence and parameters must be on the GPU or not on the GPU"))
+    return on_gpu
+end
+
+"""
+    _arrays_on_gpu(x)
+
+Whether the arrays in `x` -- `x` itself, or its fields, recursively -- are on
+the GPU: `true` if all of them are, `false` if not, and `nothing` if `x` holds
+no arrays. `StaticArray`s are ignored, since `gpu` leaves them as they are.
+"""
+function _arrays_on_gpu(x)
+    arrays = _collect_arrays!(Any[], x)
+    return isempty(arrays) ? nothing : all(_is_gpu_array, arrays)
+end
+
+function _collect_arrays!(arrays, x)
+    if x isa StaticArray || x isa Number
+        # isbits, stays where it is
+    elseif x isa AbstractArray && !(x isa StructArray)
+        push!(arrays, x)
+    else # a struct (or StructArray): look at its fields (or components)
+        for name in propertynames(x)
+            _collect_arrays!(arrays, getproperty(x, name))
         end
     end
-    return true
+    return arrays
 end
