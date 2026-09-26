@@ -107,4 +107,7 @@ include("derivatives/forward_sensitivity.jl")
 include("derivatives/forward_sensitivity_isochromat.jl")
 export simulate_derivatives_forward_sensitivity
 
+# Checks for (custom) sequence implementations
+include("utils/check_sequence.jl")
+
 end # module

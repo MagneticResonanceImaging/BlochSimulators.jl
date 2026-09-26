@@ -53,6 +53,7 @@ const TEST_FILES = [
     "finite_difference",
     "forward_sensitivity",
     "inversion",
+    "check_sequence",
 ]
 
 requested = isempty(ARGS) ? TEST_FILES : ARGS
