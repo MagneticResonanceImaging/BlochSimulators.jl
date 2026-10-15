@@ -183,7 +183,9 @@ end
 # The part of a (voxel, time...) buffer that holds voxel `i`
 @inline _voxel_output(buffer, i) = view(buffer, i, ntuple(_ -> Colon(), Val(ndims(buffer) - 1))...)
 
-function simulate_magnetization!(magnetization, ::CUDALibs, sequence::IsochromatSimulator, parameters)
+# Two-pool (MT) isochromat sequences hold a single `TwoPoolIsochromat` per voxel
+# as well, so they share this kernel
+function simulate_magnetization!(magnetization, ::CUDALibs, sequence::Union{IsochromatSimulator,TwoPoolIsochromatSimulator}, parameters)
 
     function kernel!(buffer, sequence, parameters, offset)
         i = (blockIdx().x - Int32(1)) * blockDim().x + threadIdx().x

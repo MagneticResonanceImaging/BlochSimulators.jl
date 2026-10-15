@@ -9,7 +9,7 @@ using CUDA
 using ComputationalResources: CUDALibs
 using StaticArrays
 
-using BlochSimulators: BlochSimulator, EPGSimulator, IsochromatSimulator, TwoPoolEPGSimulator, ConfigurationStatesSubset, Ω_eltype,
+using BlochSimulators: BlochSimulator, EPGSimulator, IsochromatSimulator, TwoPoolIsochromatSimulator, TwoPoolEPGSimulator, ConfigurationStatesSubset, Ω_eltype,
     initialize_derivative_states, tangents_of, signal_at_time_point!, nsamples,
     _relative_error, _round
 
