@@ -6,6 +6,7 @@ using Literate
 Literate.markdown("docs/examples/dictionary.jl", "docs/src"; flavor=Literate.CommonMarkFlavor())
 Literate.markdown("docs/examples/signal.jl", "docs/src"; flavor=Literate.CommonMarkFlavor())
 Literate.markdown("docs/examples/adiabatic.jl", "docs/src"; flavor=Literate.CommonMarkFlavor())
+Literate.markdown("docs/examples/mt.jl", "docs/src"; flavor=Literate.CommonMarkFlavor())
 
 DocMeta.setdocmeta!(BlochSimulators, :DocTestSetup, :(using BlochSimulators); recursive=true)
 
@@ -22,7 +23,7 @@ makedocs(;
     pages=[
         "Home" => "index.md",
         "Overview" => "overview.md",
-        "Examples" => ["dictionary.md", "signal.md", "adiabatic.md"],
+        "Examples" => ["dictionary.md", "signal.md", "adiabatic.md", "mt.md"],
         "Validation" => "validation.md",
         "API" => "api.md"
     ]
