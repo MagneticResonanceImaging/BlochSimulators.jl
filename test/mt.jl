@@ -36,6 +36,14 @@
     @test Λ0 ≈ Λ atol = 1e-12
     @test c0 ≈ c atol = 1e-12
 
+    # tiny f (kᵇᵃ → ∞) loses no precision compared to an exact (BigFloat) evaluation
+    for f_small in (1e-5, 1e-9)
+        Λs, cs = BlochSimulators.exchange_propagator(Δt, 0.8, T₁ᵇ, 4.0, f_small)
+        Λb, cb = BlochSimulators.exchange_propagator(big.((Δt, 0.8, T₁ᵇ, 4.0, f_small))...)
+        @test Λs ≈ Λb rtol = 1e-12
+        @test cs ≈ cb rtol = 1e-12
+    end
+
     # with exchange, (1-f,f) (the two-pool equilibrium) is a fixed point of the propagator...
     f, k = 0.15, 2.0
     Λ2, c2 = BlochSimulators.exchange_propagator(Δt, T₁ᵃ, T₁ᵇ, k, f)

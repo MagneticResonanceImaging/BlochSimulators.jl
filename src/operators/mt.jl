@@ -145,11 +145,14 @@ package -- call this once per sequence and reuse the result every relaxation int
 
     # Eigenvalues of ΛL (always real for this exchange-rate-matrix structure since
     # a12,a21 ≥ 0 and a11,a22 ≤ 0, so the discriminant (a11-a22)²+4a12a21 ≥ 0).
+    # Both are computed without cancellation, which matters for small f where kᵇᵃ → ∞:
+    # detΛL expanded into a sum of non-negative terms, and the slow eigenvalue λ₁ from
+    # λ₁λ₂ = detΛL rather than as (τ + disc)/2, the difference of two large numbers.
     τ = a11 + a22
-    detΛL = a11 * a22 - a12 * a21
+    detΛL = R₁ᵃ * R₁ᵇ + R₁ᵃ * kᵇᵃ + R₁ᵇ * kᵃᵇ
     disc = sqrt(max(τ^2 - 4 * detΛL, zero(T)))
-    λ₁ = (τ + disc) / 2
     λ₂ = (τ - disc) / 2
+    λ₁ = detΛL / λ₂
 
     ΛL = SMatrix{2,2,T}(a11, a21, a12, a22)
     I₂ = SMatrix{2,2,T}(1, 0, 0, 1)
