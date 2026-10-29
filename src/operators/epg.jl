@@ -563,14 +563,15 @@ end
     mt_initial_conditions!(Ω::AbstractConfigurationStates, Zᵇ, f)
 
 Set the free pool's configuration states to the usual initial conditions (via
-[`initial_conditions!`](@ref)) and return the bound pool's initial per-order population
-(all zero except order 0, which starts at its equilibrium value `f`). `Zᵇ` is only used
+[`initial_conditions!`](@ref)), but with order 0 of `Zᵃ` at its two-pool equilibrium
+value `1-f`, and return the bound pool's initial per-order population (all zero except
+order 0, which starts at its equilibrium value `f`). This matches EPG-X. `Zᵇ` is only used
 to determine the element type/size of the returned vector (matching how `m` is reused in
 the isochromat model), it is not mutated.
 """
 @inline function mt_initial_conditions!(Ω::AbstractConfigurationStates, Zᵇ::SVector{M,C}, f) where {M,C}
     initial_conditions!(Ω)
-    return _mt_add_equilibrium(Ω, zero(Zᵇ), SVector(zero(C), C(f)))
+    return _mt_add_equilibrium(Ω, zero(Zᵇ), SVector(C(-f), C(f)))
 end
 
 """

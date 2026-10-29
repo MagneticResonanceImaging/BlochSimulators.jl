@@ -61,10 +61,13 @@ end
 
 @testset "Test operator functions for two-pool isochromat model" begin
 
-    # initial_conditions: free pool starts at (0,0,1), bound pool at its equilibrium f
+    # initial_conditions: both pools start at their equilibrium (1-f, f), which is a
+    # fixed point of the exchange propagator
     p = T₁T₂MT(1.0, 0.1, 1.0, 1e-5, 0.2, 1.0)
     m0 = BlochSimulators.initial_conditions(TwoPoolIsochromat(0.0, 0.0, 0.0, 0.0), p)
-    @test m0 == TwoPoolIsochromat(0.0, 0.0, 1.0, 0.2)
+    @test m0 == TwoPoolIsochromat(0.0, 0.0, 0.8, 0.2)
+    Λ, c = BlochSimulators.exchange_propagator(0.01, p.T₁, p.T₁ᵇ, p.k, p.f)
+    @test Λ * SVector(m0.z, m0.zᵇ) + c ≈ SVector(m0.z, m0.zᵇ)
 
     # saturate: Wτ=0 is a no-op, large Wτ drives the bound pool to zero, free pool
     # is never affected
@@ -116,12 +119,12 @@ end
     Ns = 32
     f = 0.15
 
-    # mt_initial_conditions!: free pool exactly as `initial_conditions!`, bound pool
-    # starts at its equilibrium f at order 0 only
+    # mt_initial_conditions!: free pool as `initial_conditions!` but at its two-pool
+    # equilibrium 1-f, bound pool at its equilibrium f, both at order 0 only
     Ω = zeros(ComplexF64, 3, Ns) |> ConfigurationStates
     Zᵇ = zeros(SVector{Ns,ComplexF64})
     Zᵇ = BlochSimulators.mt_initial_conditions!(Ω, Zᵇ, f)
-    @test Ω[3, 1] == 1.0 + 0.0im
+    @test Ω[3, 1] == 1 - f + 0.0im
     @test all(Ω[1:2, :] .== 0)
     @test Zᵇ[1] == f + 0.0im
     @test all(Zᵇ[2:end] .== 0)

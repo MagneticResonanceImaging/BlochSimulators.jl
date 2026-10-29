@@ -248,11 +248,11 @@ end
 """
     initial_conditions(m::TwoPoolIsochromat{T}, p::AbstractTissueProperties) where T
 
-Return a two-pool isochromat with `(x,y,z) = (0,0,1)` for the free pool and `zᵇ = p.f`
-for the bound pool (its equilibrium value).
+Return a two-pool isochromat with `(x,y,z) = (0,0,1-p.f)` for the free pool and
+`zᵇ = p.f` for the bound pool, i.e. both pools at their equilibrium values (as in EPG-X).
 """
 @inline function initial_conditions(m::TwoPoolIsochromat{T}, p::AbstractTissueProperties) where {T}
-    return TwoPoolIsochromat{T}(0, 0, 1, p.f)
+    return TwoPoolIsochromat{T}(0, 0, 1 - p.f, p.f)
 end
 
 # Rotate
