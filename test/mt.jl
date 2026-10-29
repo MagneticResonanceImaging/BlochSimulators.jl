@@ -19,6 +19,16 @@
     @test BlochSimulators.saturation_exponent(0.0, 1e-3, 1.0, 0.0, T₂ᵇ, SuperLorentzian()) == 0.0
     @test BlochSimulators.saturation_exponent(90.0, 1e-3, 1.0, 0.0, T₂ᵇ, SuperLorentzian()) > 0.0
 
+    # B₁ scales the flip angle, so the saturation goes with B₁²; without a B₁ it is
+    # the nominal one
+    Wτ = BlochSimulators.saturation_exponent(20.0, 1e-3, 1.0, 0.0, T₂ᵇ, SuperLorentzian())
+    @test Wτ ≈ BlochSimulators.saturation_exponent(20.0 * 0.8, 1e-3, 1.0, 0.0, T₂ᵇ, SuperLorentzian()) / 0.8^2
+    Zᵇ = SVector(0.1, 0.2)
+    @test BlochSimulators.mt_saturate(Zᵇ, Wτ, T₁T₂B₁MT(1.0, 0.1, 0.8, 1.0, T₂ᵇ, 0.1, 4.0)) ≈ Zᵇ .* exp(-0.8^2 * Wτ)
+    @test BlochSimulators.mt_saturate(Zᵇ, Wτ, T₁T₂MT(1.0, 0.1, 1.0, T₂ᵇ, 0.1, 4.0)) == BlochSimulators.mt_saturate(Zᵇ, Wτ)
+    m = TwoPoolIsochromat(0.0, 0.0, 0.8, 0.2)
+    @test BlochSimulators.saturate(m, Wτ, T₁T₂B₁MT(1.0, 0.1, 0.8, 1.0, T₂ᵇ, 0.1, 4.0)).zᵇ ≈ 0.2 * exp(-0.8^2 * Wτ)
+
     # exchange_propagator: with no exchange (k=0,f=0), pool a reduces to plain T₁
     # decay/regrowth and is fully decoupled from pool b
     Δt, T₁ᵃ, T₁ᵇ = 0.5, 0.8, 1.2

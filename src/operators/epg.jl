@@ -584,13 +584,16 @@ end
 
 """
     mt_saturate(Zᵇ, Wτ)
+    mt_saturate(Zᵇ, Wτ, p)
 
 Apply RF saturation to every order of the bound pool's per-order population `Zᵇ`,
-scaling by `exp(-Wτ)` (see [`saturation_exponent`](@ref)). RF saturation of the bound
+scaling by `exp(-Wτ)` (see [`saturation_exponent`](@ref)), or by `exp(-B₁² Wτ)` given
+the tissue properties `p`, for the nominal `Wτ` (see [`B₁²`](@ref)). RF saturation of the bound
 pool is spatially uniform (order-independent), unlike the free pool's coherent
 rotation, exactly as in EPG-X's block-diagonal RF transition matrix.
 """
 @inline mt_saturate(Zᵇ, Wτ) = Zᵇ .* exp(-Wτ)
+@inline mt_saturate(Zᵇ, Wτ, p::AbstractTissueProperties) = mt_saturate(Zᵇ, B₁²(p) * Wτ)
 
 """
     mt_exchange_relax!(Ω::AbstractConfigurationStates, Zᵇ, E₂ᵃ, Λ, c)

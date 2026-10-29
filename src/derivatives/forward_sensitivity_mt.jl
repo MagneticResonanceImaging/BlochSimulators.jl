@@ -15,8 +15,8 @@
 #   lineshape              Wτ depends on T₂ᵇ, through the lineshape
 #   mt_initial_conditions! the equilibrium (1-f, f) depends on f
 #
-# B₁ only enters through the free pool's excite! (the bound pool's saturation uses
-# the nominal flip angle), so the B₁ tangent of Zᵇ has no source term.
+# B₁ enters through the free pool's excite! and, as B₁², through the bound pool's
+# saturation (mt_saturate below).
 #
 # Limitation: at exactly f = 0 there is no bound pool and exchange is switched off,
 # so the derivatives w.r.t. T₁ᵇ, T₂ᵇ and k are (correctly) zero, but the one w.r.t.
@@ -152,11 +152,14 @@ end
     return (Zᵇ, _MT_tangents(∂Zᵇ, O, O, has_B₁(∂Zᵇ) ? O : nothing, O, O, ∂Zᵇ∂f, O))
 end
 
-# Zᵇ e^{-Wτ}: every tangent is scaled alike, and the T₂ᵇ one picks up -∂Wτ Zᵇ e^{-Wτ}.
-@inline function mt_saturate((Zᵇ, ∂Zᵇ)::S_MT, (Wτ, ∂Wτ∂T₂ᵇ))
-    e = exp(-Wτ)
-    ∂ = _MT_tangents(∂Zᵇ, ∂Zᵇ.∂T₁ * e, ∂Zᵇ.∂T₂ * e, has_B₁(∂Zᵇ) ? ∂Zᵇ.∂B₁ * e : nothing,
-        ∂Zᵇ.∂T₁ᵇ * e, (∂Zᵇ.∂T₂ᵇ - ∂Wτ∂T₂ᵇ * Zᵇ) * e, ∂Zᵇ.∂f * e, ∂Zᵇ.∂k * e)
+# Zᵇ e^{-B₁² Wτ}: every tangent is scaled alike, the T₂ᵇ one picks up
+# -B₁² ∂Wτ Zᵇ e^{-B₁² Wτ} and the B₁ one -2 B₁ Wτ Zᵇ e^{-B₁² Wτ}.
+@inline function mt_saturate((Zᵇ, ∂Zᵇ)::S_MT, (Wτ, ∂Wτ∂T₂ᵇ), p::AbstractTissueProperties)
+    b² = B₁²(p)
+    e = exp(-b² * Wτ)
+    ∂B₁ = has_B₁(∂Zᵇ) ? (∂Zᵇ.∂B₁ - 2 * p.B₁ * Wτ * Zᵇ) * e : nothing
+    ∂ = _MT_tangents(∂Zᵇ, ∂Zᵇ.∂T₁ * e, ∂Zᵇ.∂T₂ * e, ∂B₁,
+        ∂Zᵇ.∂T₁ᵇ * e, (∂Zᵇ.∂T₂ᵇ - b² * ∂Wτ∂T₂ᵇ * Zᵇ) * e, ∂Zᵇ.∂f * e, ∂Zᵇ.∂k * e)
     return (Zᵇ * e, ∂)
 end
 

@@ -205,7 +205,9 @@ unaffected by this (it undergoes its usual coherent rotation instead, see
 `operators/isochromat.jl`/`operators/epg.jl`).
 
 # Arguments
-- `flip`: Nominal flip angle of the free pool for this pulse, in **degrees**.
+- `flip`: Nominal flip angle of the free pool for this pulse, in **degrees**. A `B₁`
+  scales the actual flip angle and hence `Wτ` by `B₁²`; that is applied where the
+  saturation is, by `mt_saturate`/`saturate` (see [`B₁²`](@ref)).
 - `τ_RF`: Pulse duration, in **seconds**.
 - `shape_factor`: Dimensionless pulse-shape factor relating flip angle and duration to
   mean squared RF amplitude (`1` for a rectangular/hard pulse).
@@ -228,3 +230,11 @@ voxel and call this method per pulse.
     ω₁rmsτ² = shape_factor * deg2rad(flip)^2 / τ_RF
     return T(π) * ω₁rmsτ² * g
 end
+
+"""
+    B₁²(p::AbstractTissueProperties)
+
+Factor by which `B₁` scales the bound pool's saturation `Wτ` (which goes with the RF
+power, i.e. with the flip angle squared): `p.B₁^2`, or `1` without a `B₁`.
+"""
+@inline B₁²(p::AbstractTissueProperties) = hasB₁(p) ? p.B₁^2 : one(eltype(p))

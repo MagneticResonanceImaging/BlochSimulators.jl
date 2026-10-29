@@ -274,13 +274,17 @@ end
 
 """
     saturate(m::TwoPoolIsochromat{T}, Wτ) where T
+    saturate(m::TwoPoolIsochromat{T}, Wτ, p) where T
 
 Apply RF saturation to the bound pool, scaling `zᵇ` by `exp(-Wτ)` (see
-[`saturation_exponent`](@ref)). The free pool is unaffected.
+[`saturation_exponent`](@ref)), or by `exp(-B₁² Wτ)` given the tissue properties `p`,
+for the nominal `Wτ` (see [`B₁²`](@ref)). The free pool is unaffected.
 """
 @inline function saturate(m::TwoPoolIsochromat{T}, Wτ) where {T}
     return TwoPoolIsochromat{T}(m.x, m.y, m.z, m.zᵇ * exp(-Wτ))
 end
+
+@inline saturate(m::TwoPoolIsochromat, Wτ, p::AbstractTissueProperties) = saturate(m, B₁²(p) * Wτ)
 
 # Exchange + relax
 
@@ -311,7 +315,7 @@ rotates -- the bound pool, whether it is an excitation or inversion pulse).
 """
 @inline function invert(m::TwoPoolIsochromat{T}, p::AbstractTissueProperties, τ_RF, shape_factor, Δ, ls::MTLineshape) where {T}
     mᵃ = invert(Isochromat{T}(m.x, m.y, m.z), p)
-    Wτ = saturation_exponent(T(180), τ_RF, shape_factor, Δ, p.T₂ᵇ, ls)
+    Wτ = B₁²(p) * saturation_exponent(T(180), τ_RF, shape_factor, Δ, p.T₂ᵇ, ls)
     return TwoPoolIsochromat{T}(mᵃ.x, mᵃ.y, mᵃ.z, m.zᵇ * exp(-Wτ))
 end
 

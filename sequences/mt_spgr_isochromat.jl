@@ -79,7 +79,7 @@ output_eltype(sequence::MTSPGR2D{T}) where {T} = Complex{T}
 
             # ...and saturation of the bound pool (independent of the above).
             Wτ = saturation_exponent(abs(RF), sequence.τ_RF, sequence.pulse_shape_factor, g)
-            m = saturate(m, Wτ)
+            m = saturate(m, Wτ, p)
 
             # sample transverse magnetization of the free pool right after excitation
             sample_transverse!(magnetization, TRidx, m)
