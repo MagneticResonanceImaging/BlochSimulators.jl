@@ -3,8 +3,18 @@ const DEFAULT_ΔT₁ = 0.02
 const DEFAULT_ΔT₂ = 0.0025
 const DEFAULT_ΔB₁ = 0.001
 const DEFAULT_ΔB₀ = 0.01
-const DEFAULT_STEPSIZES_FINITE_DIFFERENCE = T₁T₂B₁B₀(DEFAULT_ΔT₁, DEFAULT_ΔT₂, DEFAULT_ΔB₁, DEFAULT_ΔB₀)
+# Two-pool (MT) properties, roughly 1-2% of typical white matter values
+const DEFAULT_ΔT₁ᵇ = 0.02
+const DEFAULT_ΔT₂ᵇ = 1e-7
+const DEFAULT_Δf = 0.001
+const DEFAULT_Δk = 0.05
+const DEFAULT_STEPSIZES_FINITE_DIFFERENCE = (
+    T₁=DEFAULT_ΔT₁, T₂=DEFAULT_ΔT₂, B₁=DEFAULT_ΔB₁, B₀=DEFAULT_ΔB₀,
+    T₁ᵇ=DEFAULT_ΔT₁ᵇ, T₂ᵇ=DEFAULT_ΔT₂ᵇ, f=DEFAULT_Δf, k=DEFAULT_Δk,
+)
 const Symbols = Tuple{Vararg{Symbol}}
+# Anything holding a step size per tissue property name: a NamedTuple or a tissue properties struct
+const StepSizes = Union{NamedTuple,AbstractTissueProperties}
 
 """
     simulate_derivatives_finite_difference(
@@ -12,7 +22,7 @@ const Symbols = Tuple{Vararg{Symbol}}
         echos::AbstractMatrix{<:Complex},
         sequence::BlochSimulator,
         parameters::StructVector{<:AbstractTissueProperties},
-        stepsizes::T₁T₂B₁B₀=DEFAULT_STEPSIZES
+        stepsizes::StepSizes=DEFAULT_STEPSIZES_FINITE_DIFFERENCE
     )
 
 Calculates the partial derivatives of pre-calculated echos (contained in `ctx`) with respect to the (non-linear) tissue properties in `requested_derivatives` using finite differences.
@@ -22,7 +32,7 @@ Calculates the partial derivatives of pre-calculated echos (contained in `ctx`) 
 - `echos::AbstractMatrix`: Pre-computed matrix of magnetization at all echo times for all voxels.
 - `sequence::BlochSimulator`: The simulator representing the underlying MR pulse sequence.
 - `parameters::SimulationParameters`: The simulation parameters (in all voxels) used to generate `echos`.
-- `stepsizes::T₁T₂B₁B₀`: The step sizes for finite difference calculations for each of the different tissue properties. Default stepsizes are provided in `DEFAULT_STEPSIZES_FINITE_DIFFERENCE`.
+- `stepsizes::StepSizes`: The step sizes for finite difference calculations for each of the different tissue properties, as a `NamedTuple` (e.g. `(T₁=0.02, f=0.001)`) or a tissue properties struct (e.g. `T₁T₂B₁B₀(...)`). Default stepsizes (including the two-pool MT properties `T₁ᵇ`, `T₂ᵇ`, `f` and `k`) are provided in `DEFAULT_STEPSIZES_FINITE_DIFFERENCE`.
 
 # Returns
 - `∂echos`: A NamedTuple containing the partial derivatives of `ctx.echos` with respect to each of the `requested_derivatives`. That is, ∂echos.T₁ contains the partial derivatives w.r.t. T₁, ∂echos.T₂ contains the partial derivatives w.r.t. T₂, etc.
@@ -35,7 +45,7 @@ function simulate_derivatives_finite_difference(
     echos::AbstractMatrix{<:Complex},
     sequence::BlochSimulator,
     parameters::StructVector{<:AbstractTissueProperties},
-    stepsizes::T₁T₂B₁B₀=DEFAULT_STEPSIZES_FINITE_DIFFERENCE
+    stepsizes::StepSizes=DEFAULT_STEPSIZES_FINITE_DIFFERENCE
 )
 
     # Check consistency of "context"
@@ -86,7 +96,7 @@ If only a `sequence` and `parameters` are provided, calculate the `echos` and th
 function simulate_derivatives_finite_difference(
     sequence::BlochSimulator,
     parameters::StructVector{<:AbstractTissueProperties},
-    stepsizes::T₁T₂B₁B₀=DEFAULT_STEPSIZES_FINITE_DIFFERENCE
+    stepsizes::StepSizes=DEFAULT_STEPSIZES_FINITE_DIFFERENCE
 )
     # Calculate echos
     echos = simulate_magnetization(sequence, parameters)
@@ -106,7 +116,7 @@ If the tissue properties for a single voxel are provided only, the simulation is
 function simulate_derivatives_finite_difference(
     sequence::BlochSimulator,
     tissue_properties::AbstractTissueProperties,
-    stepsizes::T₁T₂B₁B₀=DEFAULT_STEPSIZES_FINITE_DIFFERENCE
+    stepsizes::StepSizes=DEFAULT_STEPSIZES_FINITE_DIFFERENCE
 )
     # Assemble "SimulationParameters" 
     parameters = StructVector([tissue_properties])
@@ -143,9 +153,9 @@ end
 Calculate the step size Δ for finite difference approximation of derivatives.
 
 # Arguments
-- `derivative::Symbol`: The type of derivative to calculate the step size for. Valid options are `:T₁`, `:T₂`, `:B₁`, and `:B₀`.
+- `derivative::Symbol`: The type of derivative to calculate the step size for, e.g. `:T₁`, `:T₂`, `:B₁`, `:B₀`, `:T₁ᵇ`, `:T₂ᵇ`, `:f` or `:k`.
 - `T::Type{<:Real}`: The type of the step size, which should be a subtype of `Real`.
-- `stepsizes::T₁T₂B₁B₀`: A struct from BlochSimulators containing the step sizes for all potential tissue properties.
+- `stepsizes::StepSizes`: A `NamedTuple` or tissue properties struct containing the step sizes for all potential tissue properties.
 
 # Returns
 - `Δ`: The calculated step size.
@@ -153,7 +163,7 @@ Calculate the step size Δ for finite difference approximation of derivatives.
 function _calculate_stepsize(
     derivative::Symbol,
     T::Type{<:Real},
-    stepsizes::T₁T₂B₁B₀
+    stepsizes::StepSizes
 )
     # Check that derivative is a valid parameter
     if derivative ∉ propertynames(stepsizes)
