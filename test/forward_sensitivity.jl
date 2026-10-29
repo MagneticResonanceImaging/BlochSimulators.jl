@@ -384,3 +384,76 @@ end
         end
     end
 end
+
+@testset "Two-pool (MT) EPG forward sensitivity derivatives" begin
+
+    five_point_central(f, x, h) = (-f(x + 2h) + 8f(x + h) - 8f(x - h) + f(x - 2h)) / (12h)
+    relerr(a, b) = norm(a - b) / norm(b)
+    close_to(a, b) = norm(a - b) <= 1e-6 * norm(b) + 1e-12
+
+    nTR = 40
+    RF_train = complex.(range(10.0, 70.0, length=nTR)) .* cis.(0.3 .* (1:nTR))
+
+    @testset "lineshape derivatives w.r.t. T₂ᵇ" for (ls, Δ) in [
+        (SuperLorentzian(), 0.0), (SuperLorentzian(), 1000.0), (SuperLorentzian(), 3000.0),
+        (Gaussian(), 500.0), (Lorentzian(), 2000.0)]
+        T₂ᵇ = 12e-6
+        g, ∂g = BlochSimulators.lineshape_and_derivative(Δ, T₂ᵇ, ls)
+        @test g == BlochSimulators.lineshape(Δ, T₂ᵇ, ls)
+        @test ∂g ≈ five_point_central(t -> BlochSimulators.lineshape(Δ, t, ls), T₂ᵇ, 1e-4 * T₂ᵇ) rtol = 1e-6
+    end
+
+    # The lineshape only enters through `lineshape_and_derivative` (tested above), so
+    # one lineshape suffices here. Each case lists the derivatives that are exactly
+    # zero, which finite differences only resolve down to rounding noise.
+    sequence = MTFISP2D(RF_train, 0.01, 0.001, 1.0, 0.0, SuperLorentzian(), Val(32))
+    @testset "$(nameof(typeof(p))), f = $(p.f), k = $(p.k) vs finite differences" for (p, zeros) in [
+        (T₁T₂MT(0.9, 0.07, 1.1, 12e-6, 0.12, 4.0), ()),
+        (T₁T₂MT(0.9, 0.07, 1.1, 12e-6, 1e-4, 4.0), ()),             # small f
+        (T₁T₂MT(0.9, 0.07, 1.1, 12e-6, 0.12, 0.0), (:T₁ᵇ, :T₂ᵇ)),   # k = 0: no exchange
+        (T₁T₂B₁MT(0.9, 0.07, 0.93, 1.1, 12e-6, 0.12, 4.0), ()),
+    ]
+        signal(p) = vec(simulate_magnetization(CPU1(), sequence, StructVector([p])))
+        m, ∂m = simulate_derivatives_forward_sensitivity(sequence, StructVector([p]))
+
+        @test propertynames(∂m) == BlochSimulators.supported_derivatives(typeof(p))
+        @test vec(m) == signal(p)
+
+        for θ in propertynames(∂m)
+            if θ ∈ zeros
+                @test all(iszero, ∂m[θ])
+                continue
+            end
+            i = findfirst(==(θ), fieldnames(typeof(p)))
+            vary(t) = typeof(p)(setindex(SVector(Tuple(p)), t, i)...)
+            h = iszero(p[i]) ? 1e-3 : 1e-3 * p[i]
+            fd = five_point_central(t -> signal(vary(t)), p[i], h)
+            @test close_to(vec(∂m[θ]), fd)
+        end
+    end
+
+    @testset "f = 0: no bound pool, so no dependence on its properties" begin
+        m, ∂m = simulate_derivatives_forward_sensitivity(sequence, T₁T₂MT(0.9, 0.07, 1.1, 12e-6, 0.0, 4.0))
+        @test all(iszero, ∂m.T₁ᵇ) && all(iszero, ∂m.T₂ᵇ) && all(iszero, ∂m.k)
+        @test all(isfinite, ∂m.f)
+    end
+
+    @testset "input validation" begin
+        p = StructVector([T₁T₂MT(0.9, 0.07, 1.1, 12e-6, 0.12, 4.0)])
+        @test_throws ErrorException simulate_derivatives_forward_sensitivity(MTSPGR2D(RF_train, 0.01, 0.001, 1.0, 0.0, SuperLorentzian(), 8), p)
+    end
+
+    @testset "GPU Float32 matches CPU Float64" begin
+        if CUDA.functional()
+            nvoxels = 64
+            T₁ = collect(range(0.3, 2.0, length=nvoxels))
+            T₂ = collect(range(0.02, 0.2, length=nvoxels))
+            parameters = StructVector([T₁T₂B₁MT(T₁[i], T₂[i], 0.8 + 0.4i / nvoxels, 1.0, 12e-6, 0.02 + 0.2i / nvoxels, 2.0 + 4i / nvoxels) for i in 1:nvoxels])
+            # same tissue type and sequence as above, so the CPU reference is compiled already
+            m_cpu, ∂m_cpu = simulate_derivatives_forward_sensitivity(sequence, parameters)
+            m_gpu, ∂m_gpu = simulate_derivatives_forward_sensitivity(gpu(f32(sequence)), gpu(f32(parameters)))
+            @test relerr(Array(m_gpu), m_cpu) < 1e-4
+            @test all(θ -> relerr(Array(∂m_gpu[θ]), ∂m_cpu[θ]) < 1e-4, propertynames(∂m_cpu))
+        end
+    end
+end

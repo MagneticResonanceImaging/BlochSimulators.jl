@@ -112,10 +112,11 @@ export simulate_magnetization, simulate_signal, magnetization_to_signal, phase_e
 include("derivatives/finite_difference.jl")
 export simulate_derivatives_finite_difference
 
-# Exact T₁/T₂/B₁ derivatives via forward sensitivity propagation
+# Exact T₁/T₂/B₁ (and MT) derivatives via forward sensitivity propagation
 # (as opposed to finite differences)
 include("derivatives/forward_sensitivity.jl")
 include("derivatives/forward_sensitivity_isochromat.jl")
+include("derivatives/forward_sensitivity_mt.jl")
 export simulate_derivatives_forward_sensitivity
 
 # Checks for (custom) sequence implementations

@@ -59,6 +59,11 @@
 # writing the two out separately). Adding a parameter means adding a struct,
 # a `has_B₁`-style trait, and one guarded line per operator.
 #
+# The two-pool (MT) model adds two more sets, `∂Ω∂MT` and `∂Ω∂MTB₁`, which also
+# carry T₁ᵇ, T₂ᵇ, f and k. The operators here only carry those tangents along
+# (`has_MT(∂Ω)`, via `foreach_MT!`); the MT source terms are in
+# forward_sensitivity_mt.jl.
+#
 # Why one matrix per tangent, and not one matrix of (value, ∂T₁, ∂T₂, ...)
 # entries: the latter widens the state's *element type*, which is fine for
 # the elementwise operators but not for `excite!`'s `mul!` (a fully-unrolled
@@ -70,8 +75,9 @@
 #
 # Limitations
 # -----------
-# Because there are exactly two tangent structs, exactly two combinations
-# exist: T₁/T₂, and T₁/T₂/B₁. So:
+# Because there are exactly two tangent structs per model, exactly two
+# combinations exist: T₁/T₂, and T₁/T₂/B₁ (for MT: T₁/T₂/T₁ᵇ/T₂ᵇ/f/k, with or
+# without B₁). So:
 #
 #   * T₁ and T₂ always travel together. Requesting only `:T₁` still
 #     propagates both and returns one of them, so it costs the same as
@@ -184,12 +190,62 @@ struct ∂Ω∂T₁T₂B₁{A<:AbstractArray}
     ∂B₁::A
 end
 
+# The two-pool (MT) model's tangent sets: its four extra properties always travel
+# together with T₁ and T₂, again with B₁ optional. The MT-specific operators are in
+# forward_sensitivity_mt.jl; the operators in this file only need to carry the extra
+# tangents along, which `has_MT(∂Ω)` below guards just like `has_B₁(∂Ω)`.
+struct ∂Ω∂MT{A<:AbstractArray}
+    ∂T₁::A
+    ∂T₂::A
+    ∂T₁ᵇ::A
+    ∂T₂ᵇ::A
+    ∂f::A
+    ∂k::A
+end
+
+# The properties each of them holds, in field order
+const MT_DERIVATIVES = (:T₁, :T₂, :T₁ᵇ, :T₂ᵇ, :f, :k)
+const MT_B₁_DERIVATIVES = (:T₁, :T₂, :B₁, :T₁ᵇ, :T₂ᵇ, :f, :k)
+
+struct ∂Ω∂MTB₁{A<:AbstractArray}
+    ∂T₁::A
+    ∂T₂::A
+    ∂B₁::A
+    ∂T₁ᵇ::A
+    ∂T₂ᵇ::A
+    ∂f::A
+    ∂k::A
+end
+
 # Whether a B₁ tangent is being propagated. A compile-time constant, so
 # `has_B₁(∂Ω) && ...` costs nothing. Not to be confused with `hasB₁(p)` from
 # tissueproperties.jl, which asks whether the tissue *properties* carry a B₁:
 # the properties can have one without its derivative being asked for.
 @inline has_B₁(::∂Ω∂T₁T₂) = false
 @inline has_B₁(::∂Ω∂T₁T₂B₁) = true
+@inline has_B₁(::∂Ω∂MT) = false
+@inline has_B₁(::∂Ω∂MTB₁) = true
+
+# Whether the MT tangents (∂T₁ᵇ, ∂T₂ᵇ, ∂f, ∂k) are being propagated.
+@inline has_MT(::Union{∂Ω∂T₁T₂,∂Ω∂T₁T₂B₁}) = false
+@inline has_MT(::Union{∂Ω∂MT,∂Ω∂MTB₁}) = true
+
+# Apply `op!(tangent, args...)` to each MT tangent, for the operators that do not
+# depend on the MT properties and so act on their tangents exactly as on the state.
+# One explicit call per tangent: not a loop over a tuple of them, which on the GPU
+# heap-allocates the states (see the notes at the top of this file).
+@inline function foreach_MT!(op!::F, ∂Ω, args...) where {F}
+    if has_MT(∂Ω)
+        op!(∂Ω.∂T₁ᵇ, args...)
+        op!(∂Ω.∂T₂ᵇ, args...)
+        op!(∂Ω.∂f, args...)
+        op!(∂Ω.∂k, args...)
+    end
+    return nothing
+end
+
+@inline _scale!(x, f) = (x .*= f; nothing)
+@inline _zero!(x) = (fill!(x, zero(eltype(x))); nothing)
 
 """
     S
@@ -211,7 +267,7 @@ dispatch its own methods on `S{<:Isochromat}` against this one's
 `Tuple` would not leave that room, since the two models share `E₁`, `E₂` and
 `off_resonance_rotation`.
 """
-const S{A} = Union{Tuple{A,<:∂Ω∂T₁T₂},Tuple{A,<:∂Ω∂T₁T₂B₁}}
+const S{A} = Union{Tuple{A,<:∂Ω∂T₁T₂},Tuple{A,<:∂Ω∂T₁T₂B₁},Tuple{A,<:∂Ω∂MT},Tuple{A,<:∂Ω∂MTB₁}}
 
 # Relaxation factors
 # =====================================================================
@@ -257,6 +313,7 @@ end
     ∂Ω.∂T₁ .= f .* ∂Ω.∂T₁ .+ ∂f∂T₁ .* Ω
     ∂Ω.∂T₂ .= f .* ∂Ω.∂T₂ .+ ∂f∂T₂ .* Ω
     has_B₁(∂Ω) && (∂Ω.∂B₁ .*= f)
+    foreach_MT!(_scale!, ∂Ω, f)
     Ω .*= f
     return nothing
 end
@@ -269,6 +326,7 @@ end
     ∂Ω.∂T₁ .= f .* ∂Ω.∂T₁ .+ ∂f∂T₁ .* Ω
     ∂Ω.∂T₂ .= f .* ∂Ω.∂T₂ .+ ∂f∂T₂ .* Ω
     has_B₁(∂Ω) && (∂Ω.∂B₁ .*= f)
+    foreach_MT!(_scale!, ∂Ω, f)
     Ω .*= f
     return nothing
 end
@@ -348,6 +406,7 @@ end
         excite!(∂Ω.∂B₁, RF, p)
         ∂Ω.∂B₁ .+= source
     end
+    foreach_MT!(excite!, ∂Ω, RF, p)
     return nothing
 end
 
@@ -362,6 +421,7 @@ end
     invert!(∂Ω.∂T₁)
     invert!(∂Ω.∂T₂)
     has_B₁(∂Ω) && invert!(∂Ω.∂B₁)
+    foreach_MT!(invert!, ∂Ω)
     return nothing
 end
 
@@ -375,6 +435,7 @@ end
     ∂Ω.∂T₁ .*= f
     ∂Ω.∂T₂ .*= f
     has_B₁(∂Ω) && (∂Ω.∂B₁ .= f .* ∂Ω.∂B₁ .+ ∂f∂B₁ .* Ω)
+    foreach_MT!(_scale!, ∂Ω, f)
     Ω .*= f
     return nothing
 end
@@ -392,6 +453,7 @@ end
     ∂Ω.∂T₁ .= f .* ∂Ω.∂T₁ .+ (Zero(), Zero(), ∂η∂T₁) .* Ω
     ∂Ω.∂T₂ .= f .* ∂Ω.∂T₂ .+ (Zero(), Zero(), ∂η∂T₂) .* Ω
     has_B₁(∂Ω) && (∂Ω.∂B₁ .= f .* ∂Ω.∂B₁ .+ (Zero(), Zero(), ∂η∂B₁) .* Ω)
+    foreach_MT!(_scale!, ∂Ω, f)
     Ω .*= f
     return nothing
 end
@@ -407,6 +469,7 @@ end
     dephasing!(∂Ω.∂T₁)
     dephasing!(∂Ω.∂T₂)
     has_B₁(∂Ω) && dephasing!(∂Ω.∂B₁)
+    foreach_MT!(dephasing!, ∂Ω)
     return nothing
 end
 
@@ -415,6 +478,7 @@ end
     spoil!(∂Ω.∂T₁)
     spoil!(∂Ω.∂T₂)
     has_B₁(∂Ω) && spoil!(∂Ω.∂B₁)
+    foreach_MT!(spoil!, ∂Ω)
     return nothing
 end
 
@@ -423,6 +487,7 @@ end
     diffuse!(∂Ω.∂T₁, diffusion_decay)
     diffuse!(∂Ω.∂T₂, diffusion_decay)
     has_B₁(∂Ω) && diffuse!(∂Ω.∂B₁, diffusion_decay)
+    foreach_MT!(diffuse!, ∂Ω, diffusion_decay)
     return nothing
 end
 
@@ -440,6 +505,7 @@ end
     fill!(∂Ω.∂T₁, zero(eltype(∂Ω.∂T₁)))
     fill!(∂Ω.∂T₂, zero(eltype(∂Ω.∂T₂)))
     has_B₁(∂Ω) && fill!(∂Ω.∂B₁, zero(eltype(∂Ω.∂B₁)))
+    foreach_MT!(_zero!, ∂Ω)
     return nothing
 end
 
@@ -451,6 +517,12 @@ end
     sample_transverse!(∂output.∂T₁, index, ∂Ω.∂T₁)
     sample_transverse!(∂output.∂T₂, index, ∂Ω.∂T₂)
     has_B₁(∂Ω) && sample_transverse!(∂output.∂B₁, index, ∂Ω.∂B₁)
+    if has_MT(∂Ω)
+        sample_transverse!(∂output.∂T₁ᵇ, index, ∂Ω.∂T₁ᵇ)
+        sample_transverse!(∂output.∂T₂ᵇ, index, ∂Ω.∂T₂ᵇ)
+        sample_transverse!(∂output.∂f, index, ∂Ω.∂f)
+        sample_transverse!(∂output.∂k, index, ∂Ω.∂k)
+    end
     return nothing
 end
 
@@ -483,6 +555,8 @@ end
 # tangent struct.
 @inline tangents_of(∂m::NamedTuple{(:T₁, :T₂)}) = ∂Ω∂T₁T₂(∂m.T₁, ∂m.T₂)
 @inline tangents_of(∂m::NamedTuple{(:T₁, :T₂, :B₁)}) = ∂Ω∂T₁T₂B₁(∂m.T₁, ∂m.T₂, ∂m.B₁)
+@inline tangents_of(∂m::NamedTuple{MT_DERIVATIVES}) = ∂Ω∂MT(∂m.T₁, ∂m.T₂, ∂m.T₁ᵇ, ∂m.T₂ᵇ, ∂m.f, ∂m.k)
+@inline tangents_of(∂m::NamedTuple{MT_B₁_DERIVATIVES}) = ∂Ω∂MTB₁(∂m.T₁, ∂m.T₂, ∂m.B₁, ∂m.T₁ᵇ, ∂m.T₂ᵇ, ∂m.f, ∂m.k)
 
 # Driver
 # =====================================================================
@@ -491,10 +565,16 @@ end
     supported_derivatives(parameters)
 
 Which tissue properties forward sensitivity can differentiate with respect to:
-`T₁` and `T₂` always, plus `B₁` when the parameters carry one.
+`T₁` and `T₂` always, plus `B₁` when the parameters carry one, plus `T₁ᵇ`, `T₂ᵇ`, `f`
+and `k` for the two-pool (MT) tissue properties.
 """
-@inline supported_derivatives(::Type{P}) where {P<:AbstractTissueProperties} =
-    :B₁ ∈ fieldnames(P) ? (:T₁, :T₂, :B₁) : (:T₁, :T₂)
+@inline function supported_derivatives(::Type{P}) where {P<:AbstractTissueProperties}
+    if :f ∈ fieldnames(P)
+        return :B₁ ∈ fieldnames(P) ? MT_B₁_DERIVATIVES : MT_DERIVATIVES
+    else
+        return :B₁ ∈ fieldnames(P) ? (:T₁, :T₂, :B₁) : (:T₁, :T₂)
+    end
+end
 
 @inline supported_derivatives(parameters::AbstractVector{<:AbstractTissueProperties}) =
     supported_derivatives(eltype(parameters))
@@ -523,7 +603,9 @@ size. See the comments at the top of this file for how.
 `requested_derivatives` must be a subset of [`supported_derivatives`](@ref)
 for the given parameters; omit it to get all of them. `T₁` and `T₂` are always
 propagated together, so asking for one of them costs the same as asking for
-both; `B₁` is propagated only when requested.
+both; `B₁` is propagated only when requested. For two-pool (MT) tissue properties
+(two-pool EPG sequences such as [`MTFISP2D`](@ref) only), `T₁ᵇ`, `T₂ᵇ`, `f` and `k`
+are always propagated together with `T₁` and `T₂`.
 
 Runs on the GPU when `sequence` and `parameters` are on the GPU, and on
 threaded CPU otherwise, matching `simulate_magnetization`.
@@ -546,7 +628,19 @@ function simulate_derivatives_forward_sensitivity(
     # Spelled out with literal `Val`s so that each branch is concretely typed;
     # deriving the set from the runtime `requested_derivatives` instead leaves
     # the whole call inferring badly.
-    magnetization, ∂propagated = if :B₁ ∈ requested_derivatives
+    # The MT properties always travel together with T₁ and T₂ (the exchange
+    # propagator depends on T₁, T₁ᵇ, f and k jointly), so MT tissue properties always
+    # propagate the whole MT set.
+    magnetization, ∂propagated = if :f ∈ fieldnames(eltype(parameters))
+        sequence isa TwoPoolEPGSimulator || error(
+            "Forward sensitivity for MT tissue properties is only implemented for " *
+            "two-pool EPG sequences (e.g. MTFISP2D), got $(typeof(sequence))")
+        if :B₁ ∈ requested_derivatives
+            _simulate(Val(MT_B₁_DERIVATIVES), resource, sequence, parameters)
+        else
+            _simulate(Val(MT_DERIVATIVES), resource, sequence, parameters)
+        end
+    elseif :B₁ ∈ requested_derivatives
         _simulate(Val((:T₁, :T₂, :B₁)), resource, sequence, parameters)
     else
         _simulate(Val((:T₁, :T₂)), resource, sequence, parameters)
