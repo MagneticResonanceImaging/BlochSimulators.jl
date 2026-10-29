@@ -30,6 +30,12 @@
     @test c[1] ≈ 1 - E₁ᵃ
     @test c[2] ≈ 0.0 atol = 1e-12
 
+    # f=0 with nonzero k must also decouple the pools: no bound pool means no exchange
+    # in either direction (regression: a->b rate used to stay on and drain pool a)
+    Λ0, c0 = BlochSimulators.exchange_propagator(Δt, T₁ᵃ, T₁ᵇ, 5.0, 0.0)
+    @test Λ0 ≈ Λ atol = 1e-12
+    @test c0 ≈ c atol = 1e-12
+
     # with exchange, (1-f,f) (the two-pool equilibrium) is a fixed point of the propagator...
     f, k = 0.15, 2.0
     Λ2, c2 = BlochSimulators.exchange_propagator(Δt, T₁ᵃ, T₁ᵇ, k, f)
@@ -225,4 +231,9 @@ end
     @test abs(sig_epg[end]) ≈ Mss_ernst rtol = 0.05
     @test abs(sig_iso[end]) ≈ Mss_ernst rtol = 0.05
     @test abs(sig_epg[end]) ≈ abs(sig_iso[end]) rtol = 1e-3
+
+    # f=0 with nonzero k must give the same signal as k=0 (no bound pool to exchange with)
+    p_mt_k = T₁T₂MT(T₁, T₂, 1.0, 10e-6, 0.0, 5.0)
+    @test simulate_magnetization(seq_epg, p_mt_k) ≈ m_epg
+    @test simulate_magnetization(seq_iso, p_mt_k) ≈ m_iso
 end

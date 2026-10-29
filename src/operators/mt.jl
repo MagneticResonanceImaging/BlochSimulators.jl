@@ -135,11 +135,13 @@ package -- call this once per sequence and reuse the result every relaxation int
 @inline function exchange_propagator(Δt::T, T₁ᵃ::T, T₁ᵇ::T, k::T, f::T) where {T}
 
     R₁ᵃ, R₁ᵇ = inv(T₁ᵃ), inv(T₁ᵇ)
-    # Reverse (b->a) rate from detailed balance; guard the f=0 (no bound pool) limit.
+    # Reverse (b->a) rate from detailed balance. With f=0 there is no bound pool, so
+    # exchange must be switched off in *both* directions (else a->b still drains Zᵃ).
+    kᵃᵇ = iszero(f) ? zero(T) : k
     kᵇᵃ = iszero(f) ? zero(T) : k * (1 - f) / f
 
-    a11, a12 = -R₁ᵃ - k, kᵇᵃ
-    a21, a22 = k, -R₁ᵇ - kᵇᵃ
+    a11, a12 = -R₁ᵃ - kᵃᵇ, kᵇᵃ
+    a21, a22 = kᵃᵇ, -R₁ᵇ - kᵇᵃ
 
     # Eigenvalues of ΛL (always real for this exchange-rate-matrix structure since
     # a12,a21 ≥ 0 and a11,a22 ≤ 0, so the discriminant (a11-a22)²+4a12a21 ≥ 0).
