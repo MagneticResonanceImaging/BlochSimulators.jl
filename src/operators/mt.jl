@@ -100,11 +100,16 @@ near-resonance (`|Δ| < 1.5 kHz`) interpolation to avoid the singularity at `Δ 
     else
         gc = _superlorentzian_raw(Δc, T₂ᵇ)
         go = _superlorentzian_raw(Δo, T₂ᵇ)
-        # g(Δ) only depends on Δ², so interpolate/extrapolate linearly in Δ²
-        slope = (go - gc) / (Δo^2 - Δc^2)
-        g0 = gc - slope * Δc^2          # extrapolated value at Δ=0
-        return g0 + (gc - g0) * (Δ^2 / Δc^2)
+        return _superlorentzian_interpolate(Δ, gc, go, Δc, Δo)
     end
+end
+
+# g(Δ) only depends on Δ², so interpolate/extrapolate linearly in Δ² from the values
+# gc, go at Δc, Δo. Linear in (gc, go), so it applies unchanged to their derivatives.
+@inline function _superlorentzian_interpolate(Δ, gc, go, Δc, Δo)
+    slope = (go - gc) / (Δo^2 - Δc^2)
+    g0 = gc - slope * Δc^2          # extrapolated value at Δ=0
+    return g0 + (gc - g0) * (Δ^2 / Δc^2)
 end
 
 ### EXCHANGE-RELAXATION PROPAGATOR ###
@@ -134,6 +139,36 @@ package -- call this once per sequence and reuse the result every relaxation int
 """
 @inline function exchange_propagator(Δt::T, T₁ᵃ::T, T₁ᵇ::T, k::T, f::T) where {T}
 
+    ΛL, λ₁, λ₂ = _exchange_rate_matrix(T₁ᵃ, T₁ᵇ, k, f)
+    I₂ = SMatrix{2,2,T}(1, 0, 0, 1)
+
+    eΔtλ₁, eΔtλ₂ = exp(Δt * λ₁), exp(Δt * λ₂)
+
+    if λ₁ ≈ λ₂
+        # Degenerate eigenvalues (measure-zero in practice): fall back to a first-order
+        # (in λ₁-λ₂) expansion to avoid a 0/0 division.
+        Λ = eΔtλ₁ * (I₂ + Δt * (ΛL - λ₁ * I₂))
+    else
+        P₁ = (ΛL - λ₂ * I₂) / (λ₁ - λ₂)
+        P₂ = (ΛL - λ₁ * I₂) / (λ₂ - λ₁)
+        Λ = eΔtλ₁ * P₁ + eΔtλ₂ * P₂
+    end
+
+    Meq = SVector{2,T}(1 - f, f)
+    c = (I₂ - Λ) * Meq
+
+    return Λ, c
+end
+
+"""
+    _exchange_rate_matrix(T₁ᵃ, T₁ᵇ, k, f)
+
+The 2×2 relaxation-exchange rate matrix `ΛL` of [`exchange_propagator`](@ref) and its
+eigenvalues `λ₁ ≥ λ₂` (the slow and the fast one). Shared with the forward-sensitivity
+derivative of the propagator.
+"""
+@inline function _exchange_rate_matrix(T₁ᵃ::T, T₁ᵇ::T, k::T, f::T) where {T}
+
     R₁ᵃ, R₁ᵇ = inv(T₁ᵃ), inv(T₁ᵇ)
     # Reverse (b->a) rate from detailed balance. With f=0 there is no bound pool, so
     # exchange must be switched off in *both* directions (else a->b still drains Zᵃ).
@@ -154,25 +189,7 @@ package -- call this once per sequence and reuse the result every relaxation int
     λ₂ = (τ - disc) / 2
     λ₁ = detΛL / λ₂
 
-    ΛL = SMatrix{2,2,T}(a11, a21, a12, a22)
-    I₂ = SMatrix{2,2,T}(1, 0, 0, 1)
-
-    eΔtλ₁, eΔtλ₂ = exp(Δt * λ₁), exp(Δt * λ₂)
-
-    if λ₁ ≈ λ₂
-        # Degenerate eigenvalues (measure-zero in practice): fall back to a first-order
-        # (in λ₁-λ₂) expansion to avoid a 0/0 division.
-        Λ = eΔtλ₁ * (I₂ + Δt * (ΛL - λ₁ * I₂))
-    else
-        P₁ = (ΛL - λ₂ * I₂) / (λ₁ - λ₂)
-        P₂ = (ΛL - λ₁ * I₂) / (λ₂ - λ₁)
-        Λ = eΔtλ₁ * P₁ + eΔtλ₂ * P₂
-    end
-
-    Meq = SVector{2,T}(1 - f, f)
-    c = (I₂ - Λ) * Meq
-
-    return Λ, c
+    return SMatrix{2,2,T}(a11, a21, a12, a22), λ₁, λ₂
 end
 
 ### RF SATURATION ###
@@ -196,7 +213,18 @@ unaffected by this (it undergoes its usual coherent rotation instead, see
 - `T₂ᵇ`: Bound pool transverse relaxation time constant, in **seconds**.
 - `lineshape`: One of `Gaussian()`, `Lorentzian()`, `SuperLorentzian()`.
 """
-@inline function saturation_exponent(flip::T, τ_RF::T, shape_factor::T, Δ::T, T₂ᵇ::T, ls::MTLineshape) where {T}
+@inline saturation_exponent(flip::T, τ_RF::T, shape_factor::T, Δ::T, T₂ᵇ::T, ls::MTLineshape) where {T} =
+    saturation_exponent(flip, τ_RF, shape_factor, lineshape(Δ, T₂ᵇ, ls))
+
+"""
+    saturation_exponent(flip, τ_RF, shape_factor, g)
+
+Same as above, given the lineshape value `g = lineshape(Δ, T₂ᵇ, ls)`. The lineshape does
+not change from pulse to pulse, and evaluating it (a 500-point sum for the
+super-Lorentzian) every TR dominates the run time, so sequences evaluate it once per
+voxel and call this method per pulse.
+"""
+@inline function saturation_exponent(flip::T, τ_RF::T, shape_factor::T, g::T) where {T}
     ω₁rmsτ² = shape_factor * deg2rad(flip)^2 / τ_RF
-    return T(π) * ω₁rmsτ² * lineshape(Δ, T₂ᵇ, ls)
+    return T(π) * ω₁rmsτ² * g
 end

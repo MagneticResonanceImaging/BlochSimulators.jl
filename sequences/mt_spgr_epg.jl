@@ -62,7 +62,8 @@ output_eltype(sequence::MTFISP2D{T}) where {T} = Complex{T}
     TR = sequence.TR
 
     E₂ᵃ = E₂(Ω, TR, p.T₂)
-    Λ, c = exchange_propagator(TR, p.T₁, p.T₁ᵇ, p.k, p.f)
+    Λ, c = exchange_propagator(Ω, TR, p.T₁, p.T₁ᵇ, p.k, p.f)
+    g = lineshape(Ω, sequence.Δ, p.T₂ᵇ, sequence.lineshape)
 
     Zᵇ = mt_initial_conditions!(Ω, Zᵇ, p.f)
 
@@ -74,7 +75,7 @@ output_eltype(sequence::MTFISP2D{T}) where {T} = Complex{T}
 
         # ...and saturation of the bound pool (independent of the above, spatially
         # uniform across all EPG orders).
-        Wτ = saturation_exponent(abs(RF), sequence.τ_RF, sequence.pulse_shape_factor, sequence.Δ, p.T₂ᵇ, sequence.lineshape)
+        Wτ = saturation_exponent(abs(RF), sequence.τ_RF, sequence.pulse_shape_factor, g)
         Zᵇ = mt_saturate(Zᵇ, Wτ)
 
         # sample F₊[0] right after excitation

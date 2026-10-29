@@ -61,6 +61,7 @@ output_eltype(sequence::MTSPGR2D{T}) where {T} = Complex{T}
     # relaxation-exchange propagator once (they don't change during the sequence).
     E₂ᵃ = exp(-TR / p.T₂)
     Λ, c = exchange_propagator(TR, p.T₁, p.T₁ᵇ, p.k, p.f)
+    g = lineshape(sequence.Δ, p.T₂ᵇ, sequence.lineshape)
 
     𝟘₃ = (zero(T), zero(T), zero(T))
     𝟘 = zero(T)
@@ -77,7 +78,7 @@ output_eltype(sequence::MTSPGR2D{T}) where {T} = Complex{T}
             m = rotate(m, γΔtRF, 𝟘₃, 𝟘₃, 𝟘, p)
 
             # ...and saturation of the bound pool (independent of the above).
-            Wτ = saturation_exponent(abs(RF), sequence.τ_RF, sequence.pulse_shape_factor, sequence.Δ, p.T₂ᵇ, sequence.lineshape)
+            Wτ = saturation_exponent(abs(RF), sequence.τ_RF, sequence.pulse_shape_factor, g)
             m = saturate(m, Wτ)
 
             # sample transverse magnetization of the free pool right after excitation

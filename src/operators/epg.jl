@@ -574,6 +574,14 @@ the isochromat model), it is not mutated.
     return _mt_add_equilibrium(Ω, zero(Zᵇ), SVector(C(-f), C(f)))
 end
 
+# The exchange propagator and the bound pool's lineshape take the free pool's states as
+# their first argument, like `E₁`/`E₂`, only to select the forward-sensitivity methods
+# (see src/derivatives/forward_sensitivity_mt.jl), which also return the derivatives.
+@inline exchange_propagator(::AbstractConfigurationStates, Δt, T₁ᵃ, T₁ᵇ, k, f) =
+    exchange_propagator(Δt, T₁ᵃ, T₁ᵇ, k, f)
+
+@inline lineshape(::AbstractConfigurationStates, Δ, T₂ᵇ, ls::MTLineshape) = lineshape(Δ, T₂ᵇ, ls)
+
 """
     mt_saturate(Zᵇ, Wτ)
 
